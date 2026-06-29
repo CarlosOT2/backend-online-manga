@@ -1,5 +1,4 @@
 ## RAIZ 
-
 # VS Code / sistema
 .vscode/
 .vs/
@@ -13,28 +12,21 @@ Thumbs.db
 *.tmp
 *.temp
 
-## BACK-END 
-back-end/bin/
-back-end/obj/
-back-end/back-end/bin/
-back-end/back-end/obj/
-back-end/back-end/Migrations/
+## BACK-END
+# Build
+back-end/**/bin/
+back-end/**/obj/
+
+# Migrations (se geradas automaticamente)
+back-end/**/Migrations/
 
 # Arquivos de usuário específicos do VS
-back-end/back-end/*.user
-back-end/back-end/*.dbmdl
-back-end/back-end/*.cache
-
-## FRONT-END 
-front-end/node_modules/
-front-end/dist/
-front-end/.vite/
+back-end/**/*.user
+back-end/**/*.dbmdl
+back-end/**/*.cache
 
 # Logs
 front-end/npm-debug.log*
 front-end/yarn-debug.log*
 front-end/yarn-error.log*
 front-end/pnpm-debug.log*
-
-
-

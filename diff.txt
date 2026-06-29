@@ -1,0 +1,558 @@
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+index 29b016c..5884f49 100644
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -7,6 +7,7 @@ on:
+ jobs:
+   deploy:
+     runs-on: ubuntu-latest
++    permissions: {}
+     steps:
+       - name: Deploy via SSH
+         uses: appleboy/ssh-action@v1.0.3
+diff --git a/.gitignore b/.gitignore
+index ff83828..a7d9fc3 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -1,5 +1,4 @@
+ ## RAIZ 
+-
+ # VS Code / sistema
+ .vscode/
+ .vs/
+@@ -13,28 +12,21 @@ Thumbs.db
+ *.tmp
+ *.temp
+ 
+-## BACK-END 
+-back-end/bin/
+-back-end/obj/
+-back-end/back-end/bin/
+-back-end/back-end/obj/
+-back-end/back-end/Migrations/
++## BACK-END
++# Build
++back-end/**/bin/
++back-end/**/obj/
+ 
+-# Arquivos de usuário específicos do VS
+-back-end/back-end/*.user
+-back-end/back-end/*.dbmdl
+-back-end/back-end/*.cache
++# Migrations (se geradas automaticamente)
++back-end/**/Migrations/
+ 
+-## FRONT-END 
+-front-end/node_modules/
+-front-end/dist/
+-front-end/.vite/
++# Arquivos de usuário específicos do VS
++back-end/**/*.user
++back-end/**/*.dbmdl
++back-end/**/*.cache
+ 
+ # Logs
+ front-end/npm-debug.log*
+ front-end/yarn-debug.log*
+ front-end/yarn-error.log*
+-front-end/pnpm-debug.log*
+-
+-
+-
++front-end/pnpm-debug.log*
+\ No newline at end of file
+diff --git a/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs b/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs
+new file mode 100644
+index 0000000..89203b0
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs
+@@ -0,0 +1,43 @@
++﻿using System.Text;
++using System.Text.Json;
++
++namespace back_end.Tests.Integration.Fixtures
++{
++    public abstract class BaseIntegrationTest : IAsyncLifetime
++    {
++        protected readonly CustomWebAppFactory Factory;
++        protected readonly HttpClient Client;
++
++        protected BaseIntegrationTest(CustomWebAppFactory factory)
++        {
++            Factory = factory;
++            Client = factory.Client;
++        }
++
++        public async Task InitializeAsync()
++        {
++            await Factory.ResetDatabaseAsync();
++            await SeedAsync();
++        }
++
++        protected async Task SeedAsync()
++        {
++            HttpResponseMessage? responseDelete = await Client.DeleteAsync("/Seeds");
++            responseDelete.EnsureSuccessStatusCode();
++
++            HttpResponseMessage? responseStatic = await Client.PostAsync("/Seeds/Static", null);
++            responseStatic.EnsureSuccessStatusCode();
++
++            StringContent body = new StringContent(
++                JsonSerializer.Serialize(100),
++                Encoding.UTF8,
++                "application/json"
++            );
++            HttpResponseMessage? responseSeed = await Client.PostAsync("/Seeds/Seed", body);
++            responseSeed.EnsureSuccessStatusCode();
++        }
++
++        public Task DisposeAsync() => Task.CompletedTask;
++    }
++}
++
+diff --git a/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs b/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs
+new file mode 100644
+index 0000000..cb3f9b9
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs
+@@ -0,0 +1,110 @@
++﻿using Microsoft.AspNetCore.Hosting;
++using Microsoft.AspNetCore.Mvc.Testing;
++using Microsoft.EntityFrameworkCore;
++using Microsoft.Extensions.Configuration;
++using Microsoft.Extensions.DependencyInjection;
++using Npgsql;
++using Respawn;
++using StackExchange.Redis;
++using Testcontainers.PostgreSql;
++using Testcontainers.Redis;
++using back_end.Data;
++using Microsoft.AspNetCore.TestHost;
++
++namespace back_end.Tests.Integration.Fixtures
++{
++    public class CustomWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
++    {
++        private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:16-alpine")
++            .WithDatabase("onlinemanga")
++            .WithUsername("testuser")
++            .WithPassword("testpassword")
++            .Build();
++
++        private readonly RedisContainer _redisContainer = new RedisBuilder("redis:7-alpine")
++            .Build();
++
++        private Respawner _respawner = default!;
++        private NpgsqlConnection _dbConnection = default!;
++
++        public HttpClient Client { get; private set; } = default!;
++        public string PostgresConnectionString => _postgresContainer.GetConnectionString();
++        public string RedisConnectionString => _redisContainer.GetConnectionString();
++
++        protected override void ConfigureWebHost(IWebHostBuilder builder)
++        {
++            builder.UseEnvironment("Testing");
++
++            builder.ConfigureAppConfiguration((context, config) =>
++            {
++                config.AddInMemoryCollection(new Dictionary<string, string?>
++                {
++                    ["ConnectionStrings:Default"] = _postgresContainer.GetConnectionString(),
++                    ["ConnectionStrings:Redis"] = _redisContainer.GetConnectionString()
++                });
++            });
++
++            builder.ConfigureTestServices(services =>
++            {
++                ServiceDescriptor? dbDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
++                if (dbDescriptor is not null)
++                    services.Remove(dbDescriptor);
++                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(_postgresContainer.GetConnectionString()));
++
++                ServiceDescriptor? redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
++                if (redisDescriptor is not null)
++                    services.Remove(redisDescriptor);
++                services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(_redisContainer.GetConnectionString()));
++            });
++        }
++
++        private async Task ApplyMigrationsAsync()
++        {
++            using IServiceScope scope = Services.CreateScope();
++            AppDbContext? db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
++            await db.Database.MigrateAsync();
++        }
++
++        public async Task InitializeAsync()
++        {
++            await Task.WhenAll(
++                _postgresContainer.StartAsync(),
++                _redisContainer.StartAsync()
++            );
++
++            await ApplyMigrationsAsync();
++
++            _dbConnection = new NpgsqlConnection(_postgresContainer.GetConnectionString());
++            await _dbConnection.OpenAsync();
++
++            _respawner = await Respawner.CreateAsync(_dbConnection, new RespawnerOptions
++            {
++                DbAdapter = DbAdapter.Postgres,
++                SchemasToInclude = ["public"],
++                TablesToIgnore = ["__EFMigrationsHistory"]
++            });
++
++            Client = CreateClient();
++        }
++
++        Task IAsyncLifetime.DisposeAsync()
++        {
++            return DisposeAsync().AsTask();
++        }
++        public override async ValueTask DisposeAsync()
++        {
++            if (_dbConnection is not null)
++                await _dbConnection.DisposeAsync();
++
++            await _postgresContainer.DisposeAsync();
++            await _redisContainer.DisposeAsync();
++
++            await base.DisposeAsync();
++        }
++
++        public async Task ResetDatabaseAsync()
++        {
++            await _respawner.ResetAsync(_dbConnection);
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs b/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs
+new file mode 100644
+index 0000000..a36877f
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs
+@@ -0,0 +1,9 @@
++﻿namespace back_end.Tests.Integration.Fixtures
++{
++    [CollectionDefinition(IntegrationTestCollection.Name)]
++    public class IntegrationTestCollection : ICollectionFixture<CustomWebAppFactory>
++    {
++        public const string Name = "Integration Tests";
++    }
++}
++
+diff --git a/back-end/back-end.Tests.Integration/Tests/Static.cs b/back-end/back-end.Tests.Integration/Tests/Static.cs
+new file mode 100644
+index 0000000..cf907dc
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/Tests/Static.cs
+@@ -0,0 +1,25 @@
++﻿using System.Net;
++using System.Text.Json;
++using back_end.Tests.Integration.Fixtures;
++
++namespace back_end.Tests.Integration.Tests
++{
++    [Collection(IntegrationTestCollection.Name)]
++    public class Static : BaseIntegrationTest
++    {
++        public Static(CustomWebAppFactory factory) : base(factory) { }
++
++        [Fact]
++        public async Task GetDefault()
++        {
++            HttpResponseMessage response = await Client.GetAsync("/Static");
++            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
++
++            string body = await response.Content.ReadAsStringAsync();
++            Assert.False(string.IsNullOrWhiteSpace(body));
++
++            JsonElement json = JsonSerializer.Deserialize<JsonElement>(body);
++            Assert.True(json.EnumerateObject().Any());
++        }
++    }
++}
+diff --git a/back-end/back-end.Tests.Integration/Tests/Title.cs b/back-end/back-end.Tests.Integration/Tests/Title.cs
+new file mode 100644
+index 0000000..34688fb
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/Tests/Title.cs
+@@ -0,0 +1,88 @@
++﻿using System.Net;
++using System.Text.Json;
++using back_end.Tests.Integration.Fixtures;
++
++namespace back_end.Tests.Integration.Tests
++{
++    [Collection(IntegrationTestCollection.Name)]
++    public class Title : BaseIntegrationTest
++    {
++        public Title(CustomWebAppFactory factory) : base(factory) { }
++
++        [Fact]
++        public async Task GetDefault()
++        {
++            // With id
++            HttpResponseMessage responseId = await Client.GetAsync("/Title?id=1");
++            Assert.Equal(HttpStatusCode.OK, responseId.StatusCode);
++
++            // With limit
++            HttpResponseMessage responseLimit = await Client.GetAsync("/Title?limit=10");
++            Assert.Equal(HttpStatusCode.OK, responseLimit.StatusCode);
++
++            // Without parameters → 400
++            HttpResponseMessage responseNoParams = await Client.GetAsync("/Title");
++            Assert.Equal(HttpStatusCode.BadRequest, responseNoParams.StatusCode);
++
++            // With nonexistent id → 404
++            HttpResponseMessage responseNotFound = await Client.GetAsync("/Title?id=999999");
++            Assert.Equal(HttpStatusCode.NotFound, responseNotFound.StatusCode);
++
++            // Verify response body with id
++            string bodyId = await responseId.Content.ReadAsStringAsync();
++            List<DTOs.Title>? titlesById = JsonSerializer.Deserialize<List<DTOs.Title>>(bodyId, new JsonSerializerOptions
++            {
++                PropertyNameCaseInsensitive = true
++            });
++            Assert.NotNull(titlesById);
++
++            // Verify response body with limit
++            string bodyLimit = await responseLimit.Content.ReadAsStringAsync();
++            List<DTOs.Title>? titlesByLimit = JsonSerializer.Deserialize<List<DTOs.Title>>(bodyLimit, new JsonSerializerOptions
++            {
++                PropertyNameCaseInsensitive = true
++            });
++            Assert.NotNull(titlesByLimit);
++        }
++        [Fact]
++        public async Task GetSearch()
++        {
++            // No filters
++            HttpResponseMessage noFilters = await Client.GetAsync("/Title/search");
++            Assert.Equal(HttpStatusCode.OK, noFilters.StatusCode);
++
++            // With name
++            HttpResponseMessage withName = await Client.GetAsync("/Title/search?name=naruto");
++            Assert.Equal(HttpStatusCode.OK, withName.StatusCode);
++
++            // With genresIds
++            HttpResponseMessage withGenres = await Client.GetAsync("/Title/search?genresIds=1&genresIds=2");
++            Assert.Equal(HttpStatusCode.OK, withGenres.StatusCode);
++
++            // With excludeGenresIds
++            HttpResponseMessage withExcludeGenres = await Client.GetAsync("/Title/search?excludeGenresIds=1&excludeGenresIds=2");
++            Assert.Equal(HttpStatusCode.OK, withExcludeGenres.StatusCode);
++
++            // Conflict genre include + exclude same id → 500
++            HttpResponseMessage genreConflict = await Client.GetAsync("/Title/search?genresIds=1&excludeGenresIds=1");
++            Assert.Equal(HttpStatusCode.InternalServerError, genreConflict.StatusCode);
++
++            // Conflict theme include + exclude same id → 500
++            HttpResponseMessage themeConflict = await Client.GetAsync("/Title/search?themesIds=2&excludeThemesIds=2");
++            Assert.Equal(HttpStatusCode.InternalServerError, themeConflict.StatusCode);
++
++            // Multiple filters combined
++            HttpResponseMessage multipleFilters = await Client.GetAsync("/Title/search?name=one&genresIds=1&statusIds=2&publicationYear=2000");
++            Assert.Equal(HttpStatusCode.OK, multipleFilters.StatusCode);
++
++            // Verify response body
++            string body = await withName.Content.ReadAsStringAsync();
++            List<DTOs.Title>? titles = JsonSerializer.Deserialize<List<DTOs.Title>>(body, new JsonSerializerOptions
++            {
++                PropertyNameCaseInsensitive = true
++            });
++            Assert.NotNull(titles);
++        }
++    }
++}
++
+diff --git a/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj b/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj
+new file mode 100644
+index 0000000..cd3bad2
+--- /dev/null
++++ b/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj
+@@ -0,0 +1,33 @@
++﻿<Project Sdk="Microsoft.NET.Sdk">
++
++	<PropertyGroup>
++		<TargetFramework>net8.0</TargetFramework>
++		<RootNamespace>back_end.Tests.Integration</RootNamespace>
++		<ImplicitUsings>enable</ImplicitUsings>
++		<Nullable>enable</Nullable>
++		<IsPackable>false</IsPackable>
++	</PropertyGroup>
++
++	<ItemGroup>
++		<PackageReference Include="coverlet.collector" Version="6.0.2" />
++		<PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
++		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
++		<PackageReference Include="Respawn" Version="7.0.0" />
++		<PackageReference Include="StackExchange.Redis" Version="3.0.7" />
++		<PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
++		<PackageReference Include="Testcontainers.Redis" Version="4.12.0" />
++		<PackageReference Include="xunit" Version="2.9.2" />
++		<PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
++
++		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.6" />
++		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
++	</ItemGroup>
++
++	<ItemGroup>
++		<Using Include="Xunit" />
++	</ItemGroup>
++
++	<ItemGroup>
++		<ProjectReference Include="..\back-end\back-end.csproj" />
++	</ItemGroup>
++</Project>
+diff --git a/back-end/back-end.sln b/back-end/back-end.sln
+index 9d80e4a..e74aea7 100644
+--- a/back-end/back-end.sln
++++ b/back-end/back-end.sln
+@@ -7,20 +7,50 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "back-end", "back-end\back-e
+ EndProject
+ Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{81DDED9D-158B-E303-5F62-77A2896D2A5A}"
+ EndProject
++Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "back-end.Tests.Integration", "back-end.Tests.Integration\back-end.Tests.Integration.csproj", "{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}"
++EndProject
+ Global
+ 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+ 		Debug|Any CPU = Debug|Any CPU
++		Debug|x64 = Debug|x64
++		Debug|x86 = Debug|x86
+ 		Release|Any CPU = Release|Any CPU
++		Release|x64 = Release|x64
++		Release|x86 = Release|x86
+ 	EndGlobalSection
+ 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+ 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+ 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x64.ActiveCfg = Debug|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x64.Build.0 = Debug|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x86.ActiveCfg = Debug|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x86.Build.0 = Debug|Any CPU
+ 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+ 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|Any CPU.Build.0 = Release|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x64.ActiveCfg = Release|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x64.Build.0 = Release|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x86.ActiveCfg = Release|Any CPU
++		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x86.Build.0 = Release|Any CPU
+ 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+ 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|x64.ActiveCfg = Debug|x64
++		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|x86.ActiveCfg = Debug|x86
+ 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+ 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.Build.0 = Release|Any CPU
++		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|x64.ActiveCfg = Release|x64
++		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|x86.ActiveCfg = Release|x86
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x64.ActiveCfg = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x64.Build.0 = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x86.ActiveCfg = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x86.Build.0 = Debug|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|Any CPU.Build.0 = Release|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x64.ActiveCfg = Release|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x64.Build.0 = Release|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x86.ActiveCfg = Release|Any CPU
++		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x86.Build.0 = Release|Any CPU
+ 	EndGlobalSection
+ 	GlobalSection(SolutionProperties) = preSolution
+ 		HideSolutionNode = FALSE
+diff --git a/back-end/back-end/Conventions/RemoveControllerConvention.cs b/back-end/back-end/Conventions/RemoveControllerConvention.cs
+new file mode 100644
+index 0000000..5e976e9
+--- /dev/null
++++ b/back-end/back-end/Conventions/RemoveControllerConvention.cs
+@@ -0,0 +1,23 @@
++﻿using Microsoft.AspNetCore.Mvc.ApplicationModels;
++
++namespace back_end.Conventions
++{
++    public class RemoveControllerConvention : IApplicationModelConvention
++    {
++        private readonly string _controllerName;
++
++        public RemoveControllerConvention(string controllerName)
++        {
++            _controllerName = controllerName;
++        }
++
++        public void Apply(ApplicationModel app)
++        {
++            ControllerModel? controller = app.Controllers
++                .FirstOrDefault(c => c.ControllerName == _controllerName);
++
++            if (controller != null)
++                app.Controllers.Remove(controller);
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/back-end/back-end/Program.cs b/back-end/back-end/Program.cs
+index e2f67cb..5d72cf6 100644
+--- a/back-end/back-end/Program.cs
++++ b/back-end/back-end/Program.cs
+@@ -1,6 +1,8 @@
+ 
++using back_end.Conventions;
+ using back_end.Data;
+ using back_end.Shared.Cache;
++using back_end.Conventions;
+ using back_end.Shared.Settings;
+ using Microsoft.EntityFrameworkCore;
+ using StackExchange.Redis;
+@@ -14,7 +16,11 @@ namespace back_end
+             var builder = WebApplication.CreateBuilder(args);
+ 
+             //# Services
+-            builder.Services.AddControllers();
++            builder.Services.AddControllers(options =>
++            {
++                if (builder.Environment.IsProduction())
++                    options.Conventions.Add(new RemoveControllerConvention("Seeds"));
++            });
+             builder.Services.AddEndpointsApiExplorer();
+             builder.Services.AddSwaggerGen();
+ 
+@@ -34,7 +40,11 @@ namespace back_end
+             builder.Services.Configure<ValidationSettings>(builder.Configuration.GetSection("Database:Tables:Validation"));
+ 
+             builder.Services.AddSingleton<CacheHandler>();
+-            builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("redis:6379"));
++            builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
++            {
++                string? connectionstring = builder.Configuration.GetConnectionString("Redis");
++                return ConnectionMultiplexer.Connect(connectionstring!);
++            });
+ 
+             //? Cors
+             builder.Services.AddCors(options =>
+diff --git a/back-end/back-end/appsettings.json b/back-end/back-end/appsettings.json
+index d74c124..3b77090 100644
+--- a/back-end/back-end/appsettings.json
++++ b/back-end/back-end/appsettings.json
+@@ -35,6 +35,8 @@
+     },
+     "AllowedHosts": "*",
+     "ConnectionStrings": {
++        // Used to connect with the redis.
++        "Redis": "redis:6379",
+         // Used to connect with the database at the terminal.
+         "Terminal": "Host=localhost;Port=5433;Database=CatManga;Username=root;Password=postgreSQL",
+         // Used to connect with the database in Docker (containers)
+diff --git a/back-end/back-end/back-end.csproj b/back-end/back-end/back-end.csproj
+index ea0f831..bb0432e 100644
+--- a/back-end/back-end/back-end.csproj
++++ b/back-end/back-end/back-end.csproj
+@@ -6,6 +6,8 @@
+     <ImplicitUsings>enable</ImplicitUsings>
+     <RootNamespace>back_end</RootNamespace>
+     <UserSecretsId>f7bb8a85-7cc0-4c09-9786-c986fd012751</UserSecretsId>
++    <AnalysisLevel>latest</AnalysisLevel>
++    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+     <DockerfileContext>.</DockerfileContext>
+     <DockerComposeProjectPath>..\docker-compose.dcproj</DockerComposeProjectPath>

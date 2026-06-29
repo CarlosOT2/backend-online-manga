@@ -1,6 +1,8 @@
 
+using back_end.Conventions;
 using back_end.Data;
 using back_end.Shared.Cache;
+using back_end.Conventions;
 using back_end.Shared.Settings;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
@@ -14,7 +16,11 @@ namespace back_end
             var builder = WebApplication.CreateBuilder(args);
 
             //# Services
-            builder.Services.AddControllers();
+            builder.Services.AddControllers(options =>
+            {
+                if (builder.Environment.IsProduction())
+                    options.Conventions.Add(new RemoveControllerConvention("Seeds"));
+            });
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
@@ -34,7 +40,11 @@ namespace back_end
             builder.Services.Configure<ValidationSettings>(builder.Configuration.GetSection("Database:Tables:Validation"));
 
             builder.Services.AddSingleton<CacheHandler>();
-            builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("redis:6379"));
+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+            {
+                string? connectionstring = builder.Configuration.GetConnectionString("Redis");
+                return ConnectionMultiplexer.Connect(connectionstring!);
+            });
 
             //? Cors
             builder.Services.AddCors(options =>
