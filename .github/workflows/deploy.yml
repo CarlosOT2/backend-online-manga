@@ -17,13 +17,13 @@ jobs:
           dotnet-version: '8.0.x'  
 
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore back-end/back-end.sln
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build back-end/back-end.sln --no-restore --configuration Release
 
       - name: Run tests
-        run: dotnet test --no-build --configuration Release --verbosity normal
+        run: dotnet test back-end/back-end.sln --no-build --configuration Release --verbosity normal
   deploy:
     needs: test
     runs-on: ubuntu-latest
