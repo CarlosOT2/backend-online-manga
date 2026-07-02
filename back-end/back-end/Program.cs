@@ -2,16 +2,16 @@
 using back_end.Conventions;
 using back_end.Data;
 using back_end.Shared.Cache;
-using back_end.Conventions;
 using back_end.Shared.Settings;
 using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
+using back_end.Database.Seeds;
 
 namespace back_end
 {
     public class Program
     {
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             var builder = WebApplication.CreateBuilder(args);
 
@@ -51,7 +51,10 @@ namespace back_end
             {
                 options.AddPolicy("front-end",
                     builder => builder
-                        .WithOrigins("http://localhost:5173")
+                        .WithOrigins(
+                            "http://localhost:5173",
+                            "https://frontend-online-manga.vercel.app"
+                            )
                         .AllowAnyMethod()
                         .AllowAnyHeader());
             });
@@ -59,11 +62,37 @@ namespace back_end
             //# App
             var app = builder.Build();
 
-            // Configure the HTTP request pipeline.
             if (app.Environment.IsDevelopment())
             {
                 app.UseSwagger();
                 app.UseSwaggerUI();
+            }
+            if (app.Environment.IsProduction())
+            {
+                using (IServiceScope scope = app.Services.CreateScope())
+                {
+                    AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                    int retries = 10;
+                    while (retries > 0)
+                    {
+                        try
+                        {
+                            db.Database.Migrate();
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            retries--;
+                            Console.WriteLine($"Error applying migration, retrying... ({retries} attempts left): {ex.Message}");
+                            if (retries == 0) throw;
+                            await Task.Delay(3000);
+                        }
+                    }
+
+                    Seeder seeder = new Seeder(db);
+                    await seeder.Run(500);
+                }
             }
 
             app.UseCors("front-end");

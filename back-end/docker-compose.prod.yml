@@ -1,0 +1,40 @@
+services:
+  back-end:
+    build:
+      context: back-end
+      dockerfile: Dockerfile
+    restart: always
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_HTTP_PORTS=8080
+      - ConnectionStrings__Default=Host=db;Port=5432;Database=OnlineManga;Username=root;Password=${DB_PASSWORD}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: OnlineManga
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+
+  redis:
+    image: redis:latest
+    restart: always
+    volumes:
+      - redisdata:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+
+volumes:
+  pgdata:
+  redisdata:

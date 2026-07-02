@@ -29,7 +29,6 @@ namespace back_end.Controllers
         public async Task<ActionResult<DTOs.Static>> GetAllStaticData()
         {
             //? Variables
-            System.Diagnostics.Debug.WriteLine("Oi53");
             Result<DTOs.Static> result = await _dbAccess.GetAllStaticData();
 
             if (result.IsFailure)
