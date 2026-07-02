@@ -1,5 +1,5 @@
-## RAIZ 
-# VS Code / sistema
+## ROOT
+# VS Code / System
 .vscode/
 .vs/
 *.suo
@@ -17,10 +17,7 @@ Thumbs.db
 back-end/**/bin/
 back-end/**/obj/
 
-# Migrations (se geradas automaticamente)
-back-end/**/Migrations/
-
-# Arquivos de usuário específicos do VS
+# VS user-specific files
 back-end/**/*.user
 back-end/**/*.dbmdl
 back-end/**/*.cache
