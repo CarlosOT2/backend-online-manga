@@ -38,7 +38,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Publish
-        run: dotnet publish back-end/back-end.csproj -c Release -o publish
+        run: dotnet publish back-end/back-end/back-end.csproj -c Release -o publish
 
       - name: Create release folder on VPS
         uses: appleboy/ssh-action@v1.0.3
