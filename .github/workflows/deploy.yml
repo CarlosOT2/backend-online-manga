@@ -5,18 +5,80 @@ on:
     branches: [main]
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
-    permissions: {}
     steps:
-      - name: Deploy via SSH
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'  
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Run tests
+        run: dotnet test --no-build --configuration Release --verbosity normal
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Publish
+        run: dotnet publish back-end/back-end.csproj -c Release -o publish
+
+      - name: Create release folder on VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ${{ secrets.VPS_PATH }}
-            git pull origin main
-            dotnet publish back-end/back-end.csproj -c Release -o /var/www/backend/publish
+            RELEASE=${{ secrets.VPS_PATH }}/releases/${{ github.sha }}
+            mkdir -p $RELEASE
+
+      - name: Upload files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "publish/*"
+          target: "${{ secrets.VPS_PATH }}/releases/${{ github.sha }}"
+
+      - name: Switch release + restart
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            ln -sfn ${{ secrets.VPS_PATH }}/releases/${{ github.sha }} ${{ secrets.VPS_PATH }}/current
             sudo systemctl restart backend
+
+      - name: Cleanup old releases
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd ${{ secrets.VPS_PATH }}/releases
+            find . -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\0' \
+              | sort -znr \
+              | cut -zd' ' -f2- \
+              | tail -zn +5 \
+              | xargs -0 -r rm -rf
