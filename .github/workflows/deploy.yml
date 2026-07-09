@@ -41,5 +41,6 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             export DB_PASSWORD="${{ secrets.VPS_DB_PASSWORD }}"
-            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml up -d --build
+            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml build
+            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml up -d
             docker image prune -f
