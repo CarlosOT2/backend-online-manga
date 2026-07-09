@@ -21,6 +21,7 @@ namespace back_end
                 if (builder.Environment.IsProduction())
                     options.Conventions.Add(new RemoveControllerConvention("Seeds"));
             });
+            builder.Services.AddHealthChecks();
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
 
@@ -98,6 +99,7 @@ namespace back_end
             app.UseCors("front-end");
             app.UseHttpsRedirection();
             app.UseAuthorization();
+            app.MapHealthChecks("/health");
             app.MapControllers();
 
             app.Run();

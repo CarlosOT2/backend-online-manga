@@ -44,3 +44,31 @@ jobs:
             docker compose -p onlinemanga -f back-end/docker-compose.prod.yml build
             docker compose -p onlinemanga -f back-end/docker-compose.prod.yml up -d
             docker image prune -f
+  healthcheck:
+    needs: deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Wait for app to be healthy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.VPS_PATH }}"
+
+            echo "Waiting for app to be healthy (timeout: 3 minutes)..."
+            for i in $(seq 1 90); do
+              if curl -sf http://localhost:8080/health > /dev/null; then
+                echo "App is healthy! (took ~$((i * 2))s)"
+                exit 0
+              fi
+              echo "Attempt $i/90: not ready yet, waiting 2s..."
+              sleep 2
+            done
+
+            echo "ERROR: App did not become healthy after 3 minutes"
+            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml logs back-end --tail 50
+            exit 1
