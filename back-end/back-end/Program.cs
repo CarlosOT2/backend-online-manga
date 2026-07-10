@@ -61,6 +61,7 @@ namespace back_end
             });
 
             //# App
+
             var app = builder.Build();
 
             if (app.Environment.IsDevelopment())
@@ -68,33 +69,35 @@ namespace back_end
                 app.UseSwagger();
                 app.UseSwaggerUI();
             }
-            if (app.Environment.IsProduction())
+
+            using (IServiceScope scope = app.Services.CreateScope())
             {
-                using (IServiceScope scope = app.Services.CreateScope())
+                AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+                int retries = 10;
+                while (retries > 0)
                 {
-                    AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-                    int retries = 10;
-                    while (retries > 0)
+                    try
                     {
-                        try
-                        {
-                            db.Database.Migrate();
-                            break;
-                        }
-                        catch (Exception ex)
-                        {
-                            retries--;
-                            Console.WriteLine($"Error applying migration, retrying... ({retries} attempts left): {ex.Message}");
-                            if (retries == 0) throw;
-                            await Task.Delay(3000);
-                        }
+                        db.Database.Migrate();
+                        break;
                     }
+                    catch (Exception ex)
+                    {
+                        retries--;
+                        Console.WriteLine($"Error applying migration, retrying... ({retries} attempts left): {ex.Message}");
+                        if (retries == 0) throw;
+                        await Task.Delay(3000);
+                    }
+                }
 
+                if (app.Environment.IsProduction())
+                {
                     Seeder seeder = new Seeder(db);
                     await seeder.Run(500);
                 }
             }
+
 
             app.UseCors("front-end");
             app.UseHttpsRedirection();

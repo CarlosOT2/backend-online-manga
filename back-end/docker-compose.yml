@@ -4,13 +4,15 @@ services:
     build:
       context: back-end
       dockerfile: Dockerfile
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
   db:
     image: postgres:16
     restart: always
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: postgreSQL
-      POSTGRES_DB: CatManga
+      POSTGRES_DB: OnlineManga
     ports:
       - "5433:5432"
     volumes:
@@ -23,3 +25,5 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
 volumes:
   pgdata:
+
+
