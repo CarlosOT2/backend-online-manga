@@ -41,6 +41,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             export DB_PASSWORD="${{ secrets.VPS_DB_PASSWORD }}"
+            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml down -v
             docker compose -p onlinemanga -f back-end/docker-compose.prod.yml build
             docker compose -p onlinemanga -f back-end/docker-compose.prod.yml up -d
             docker image prune -f
@@ -65,10 +66,10 @@ jobs:
                 echo "App is healthy! (took ~$((i * 2))s)"
                 exit 0
               fi
-              echo "Attempt $i/90: not ready yet, waiting 2s..."
+              echo "Attempt $i/180: not ready yet, waiting 2s..."
               sleep 2
             done
 
-            echo "ERROR: App did not become healthy after 3 minutes"
+            echo "ERROR: App did not become healthy after 6 minutes"
             docker compose -p onlinemanga -f back-end/docker-compose.prod.yml logs back-end --tail 50
             exit 1
