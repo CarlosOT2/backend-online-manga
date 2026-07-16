@@ -36,10 +36,10 @@
         public int ContentRating { get; set; } = -1;
         public int Demographic { get; set; } = -1;
 
-        public IEnumerable<int> genres { get; set; } = new List<int>();
-        public IEnumerable<int> themes { get; set; } = new List<int>();
-        public IEnumerable<string> authors { get; set; } = new List<string>();
-        public IEnumerable<string> artists { get; set; } = new List<string>();
+        public IEnumerable<int>? genres { get; set; } = new List<int>();
+        public IEnumerable<int>? themes { get; set; } = new List<int>();
+        public IEnumerable<string>? authors { get; set; } = new List<string>();
+        public IEnumerable<string>? artists { get; set; } = new List<string>();
         public IEnumerable<AlternativeNameDTO>? alternativenames { get; set; } = new List<AlternativeNameDTO>();
         public IEnumerable<ChaptersDTO>? chapters { get; set; } = new List<ChaptersDTO>();    
     }

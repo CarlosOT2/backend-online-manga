@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using back_end.Shared.Core;
 using back_end.Models;
 using System.Diagnostics;
+using System.Collections.Generic;
 
 namespace back_end.Database.DbAccess
 {
@@ -16,11 +17,19 @@ namespace back_end.Database.DbAccess
             _context = context;
         }
 
-        private IQueryable<DTOs.Title> BuildQuery(
-            bool includeChapters = false,
-            bool includeAlternativeNames = false
-            )
+        public class TitleQueryOptions
         {
+            public bool IncludeAuthors { get; set; } = false;
+            public bool IncludeArtists { get; set; } = false;
+            public bool IncludeGenres { get; set; } = false;
+            public bool IncludeThemes { get; set; } = false;
+            public bool IncludeAlternativeNames { get; set; } = false;
+            public bool IncludeChapters { get; set; } = false;
+        }
+        private IQueryable<DTOs.Title> BuildQuery(TitleQueryOptions? options = null)
+        {
+            options ??= new TitleQueryOptions();
+
             return _context.Titles
             .AsNoTracking()
             .AsSplitQuery()
@@ -36,19 +45,31 @@ namespace back_end.Database.DbAccess
                 ContentRating = t.ContentRating.id,
                 Demographic = t.Demographic.id,
 
-                authors = t.Author.Select(a => a.name),
-                artists = t.Artist.Select(a => a.name),
-                genres = t.Genre.Select(g => g.id),
-                themes = t.Theme.Select(th => th.id),
+                authors = options.IncludeAuthors
+                ? t.Author.Select(a => a.name)
+                : null,
 
-                alternativenames = includeAlternativeNames
+                artists = options.IncludeArtists
+                ? t.Artist.Select(a => a.name)
+                : null,
+
+                genres = options.IncludeGenres
+                ? t.Genre.Select(g => g.id)
+                : null,
+
+                themes = options.IncludeThemes
+                ? t.Theme.Select(th => th.id)
+                : null,
+
+                alternativenames = options.IncludeAlternativeNames
                 ? t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
                 })
                 : null,
-                chapters = includeChapters
+
+                chapters = options.IncludeChapters
                 ? t.Chapters.Select(c => new DTOs.Title.ChaptersDTO
                 {
                     id = c.id,
@@ -72,30 +93,98 @@ namespace back_end.Database.DbAccess
             return await query.ToListAsync();
         }
 
-        public async Task<Result<List<DTOs.Title>>> GetTitleByLimit(int limit)
+        public async Task<Result<List<DTOs.Title>>> GetTitleById(int id)
         {
             try
             {
-                IQueryable<DTOs.Title> query = BuildQuery();
-                query = query.Take(limit);
-                List<DTOs.Title> titles = await RunQuery(query);
-                return Result<List<DTOs.Title>>.Success(titles);
+                IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
+                   {
+                       IncludeAuthors = true,
+                       IncludeArtists = true,
+                       IncludeGenres = true,
+                       IncludeThemes = true,
+                       IncludeAlternativeNames = true,
+                       IncludeChapters = true
+                   }
+                );
+                query = query.Where(t => t.id == id);
+                List<DTOs.Title> title = await RunQuery(query);
+
+                return Result<List<DTOs.Title>>.Success(title);
             }
             catch (Exception ex)
             {
                 return Result<List<DTOs.Title>>.Failure(ex.Message);
             }
         }
-
-        public async Task<Result<List<DTOs.Title>>> GetTitleById(int id)
+        public async Task<Result<List<DTOs.Title>>> GetTitleLatestUpdates(int limit, bool compact)
         {
             try
             {
-                IQueryable<DTOs.Title> query = BuildQuery(true, true);
-                query = query.Where(t => t.id == id);
-                List<DTOs.Title> title = await RunQuery(query);
+                if (limit > 100)
+                    return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
 
+                IQueryable<DTOs.Title> query = compact ? BuildQuery()
+                : BuildQuery(new TitleQueryOptions
+                {
+                    IncludeThemes = true,
+                    IncludeGenres = true,
+                    IncludeAuthors = true,
+                    IncludeArtists = true
+                });
+                query = query.Take(limit);
+
+                List<DTOs.Title> title = await RunQuery(query);
                 return Result<List<DTOs.Title>>.Success(title);
+            }
+            catch (Exception ex)
+            {
+                return Result<List<DTOs.Title>>.Failure(ex.Message);
+            }
+        }
+        public async Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact)
+        {
+            try
+            {
+                if (limit > 100)
+                    return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
+
+                IQueryable<DTOs.Title> query = compact ? BuildQuery()
+                : BuildQuery(new TitleQueryOptions
+                  {
+                     IncludeThemes = true,
+                     IncludeGenres = true,
+                     IncludeAuthors = true,
+                     IncludeArtists = true
+                  });
+                query = query.Take(limit);
+
+                List<DTOs.Title> title = await RunQuery(query);
+                return Result<List<DTOs.Title>>.Success(title);
+            }
+            catch (Exception ex)
+            {
+                return Result<List<DTOs.Title>>.Failure(ex.Message);
+            }
+        }
+        public async Task<Result<List<DTOs.Title>>> GetFeaturedTitles(int limit)
+        {
+            try
+            {
+                if (limit > 100)   
+                    return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
+
+                IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
+                {
+                    IncludeThemes = true,
+                    IncludeGenres = true,
+                    IncludeAuthors = true,
+                    IncludeArtists = true
+                });
+                query = query.Take(limit);
+
+                List<DTOs.Title> titles = await RunQuery(query);
+                return Result<List<DTOs.Title>>.Success(titles);
             }
             catch (Exception ex)
             {
@@ -121,7 +210,15 @@ namespace back_end.Database.DbAccess
             try
             {
                 //? Variables
-                IQueryable<DTOs.Title> query = BuildQuery();
+                IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
+                {
+                    IncludeAuthors = true,
+                    IncludeArtists = true,
+                    IncludeGenres = true,
+                    IncludeThemes = true,
+                    IncludeAlternativeNames = true
+                }
+                );
 
                 //? Verification
                 IEnumerable<int> conflictingGenres = genresIds?.Intersect(excludeGenresIds ?? []) ?? [];
@@ -137,19 +234,19 @@ namespace back_end.Database.DbAccess
 
                 //? Author
                 if (!string.IsNullOrWhiteSpace(author))
-                    query = query.Where(t => t.authors.Any(aut => EF.Functions.ILike(aut, $"%{author}%")));
+                    query = query.Where(t => t.authors!.Any(aut => EF.Functions.ILike(aut, $"%{author}%")));
 
                 //? Artist
                 if (!string.IsNullOrWhiteSpace(artist))
-                    query = query.Where(t => t.artists.Any(art => EF.Functions.ILike(art, $"%{artist}%")));
+                    query = query.Where(t => t.artists!.Any(art => EF.Functions.ILike(art, $"%{artist}%")));
 
                 //? Genres
                 if (genresIds?.Length >= 1)
-                    query = query.Where(t => genresIds.All(id => t.genres.Contains(id)));
+                    query = query.Where(t => genresIds.All(id => t.genres!.Contains(id)));
 
                 //? Themes
                 if (themesIds?.Length >= 1)
-                    query = query.Where(t => themesIds.All(id => t.themes.Contains(id)));
+                    query = query.Where(t => themesIds.All(id => t.themes!.Contains(id)));
 
                 //? Demographic
                 if (demographicIds?.Length >= 1)
@@ -169,10 +266,10 @@ namespace back_end.Database.DbAccess
 
                 //# Exclude 
                 if (excludeGenresIds?.Length >= 1)
-                    query = query.Where(t => !excludeGenresIds.Any(id => t.genres.Contains(id)));
+                    query = query.Where(t => !excludeGenresIds.Any(id => t.genres!.Contains(id)));
 
                 if (excludeThemesIds?.Length >= 1)
-                    query = query.Where(t => !excludeThemesIds.Any(id => t.themes.Contains(id)));
+                    query = query.Where(t => !excludeThemesIds.Any(id => t.themes!.Contains(id)));
 
                 List<DTOs.Title> titles = await RunQuery(query);
                 return Result<List<DTOs.Title>>.Success(titles);

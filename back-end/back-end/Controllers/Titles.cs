@@ -21,24 +21,65 @@ namespace back_end.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<DTOs.Title>>> GetTitle([FromQuery] int? id, [FromQuery] int? limit)
+        public async Task<ActionResult<List<DTOs.Title>>> GetTitle([FromQuery] int? id)
         {
-
-            System.Diagnostics.Debug.WriteLine("Title");
             //? Verifications
-            if (!id.HasValue && !limit.HasValue)
-                return BadRequest("You must provide at least one parameter: 'id' or 'limit'.");
+            if (!id.HasValue)
+                return BadRequest("You must provide a id");
 
             //? Variables
-            Result<List<DTOs.Title>> result = id.HasValue
-                ? await _dbAccess.GetTitleById(id.Value)
-                : await _dbAccess.GetTitleByLimit(limit!.Value);
+            Result<List<DTOs.Title>> result = await _dbAccess.GetTitleById(id.Value);
 
             if (result.IsFailure)
                 return StatusCode(500, "Server Failure");
 
             if (result.Value!.Count <= 0 && id.HasValue)
                 return NotFound();
+
+            return Ok(result.Value);
+        }
+        [HttpGet("latestupdates")]
+        public async Task<ActionResult<List<DTOs.Title>>> GetTitleLatestUpdates([FromQuery] int? limit, [FromQuery] bool compact = true)
+        {
+            //? Verifications
+            if (!limit.HasValue)
+                return BadRequest("You must provide a limit");
+
+            //? Variables
+            Result<List<DTOs.Title>> result = await _dbAccess.GetTitleLatestUpdates(limit.Value, compact);
+
+            if (result.IsFailure)
+                return StatusCode(500, "Server Failure");
+
+            return Ok(result.Value);
+        }
+        [HttpGet("recentlyadded")]
+        public async Task<ActionResult<List<DTOs.Title>>> GetTitleRecentlyAdded([FromQuery] int? limit, [FromQuery] bool compact = true)
+        {
+            //? Verifications
+            if (!limit.HasValue)
+                return BadRequest("You must provide a limit");
+
+            //? Variables
+            Result<List<DTOs.Title>> result = await _dbAccess.GetTitleRecentlyAdded(limit.Value, compact);
+
+            if (result.IsFailure)
+                return StatusCode(500, "Server Failure");
+
+            return Ok(result.Value);
+        }
+        [HttpGet("featured")]
+        public async Task<ActionResult<List<DTOs.Title>>> GetTitleFeatured([FromQuery] int? limit)
+        {
+            //? Verifications
+            if (!limit.HasValue)
+                return BadRequest("You must provide a limit");
+
+            //? Variables
+            Result<List<DTOs.Title>> result = await _dbAccess.GetFeaturedTitles(limit.Value);
+
+            if (result.IsFailure)
+                return StatusCode(500, "Server Failure");
 
             return Ok(result.Value);
         }
