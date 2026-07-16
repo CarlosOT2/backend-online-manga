@@ -1,0 +1,3108 @@
+diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+index 998256e..c7d57e1 100644
+--- a/.github/workflows/deploy.yml
++++ b/.github/workflows/deploy.yml
+@@ -59,8 +59,8 @@ jobs:
+             set -e
+             cd "${{ secrets.VPS_PATH }}"
+ 
+-            echo "Waiting for app to be healthy (timeout: 3 minutes)..."
+-            for i in $(seq 1 90); do
++            echo "Waiting for app to be healthy (timeout: 6 minutes)..."
++            for i in $(seq 1 180); do
+               if curl -sf http://localhost:8080/health > /dev/null; then
+                 echo "App is healthy! (took ~$((i * 2))s)"
+                 exit 0
+diff --git a/back-end/back-end/Controllers/Seeds.cs b/back-end/back-end/Controllers/Seeds.cs
+index 00a6094..81ecc0d 100644
+--- a/back-end/back-end/Controllers/Seeds.cs
++++ b/back-end/back-end/Controllers/Seeds.cs
+@@ -30,7 +30,7 @@ namespace back_end.Controllers
+         }
+ 
+         [HttpPost("Seed")]
+-        public async Task<IActionResult> Seed([FromBody] int rows = 500)
++        public async Task<IActionResult> Seed([FromBody] int rows = 200)
+         {
+             await _seeder.Run(rows);
+             return Ok("Seed executed");
+diff --git a/back-end/back-end/Controllers/Static.cs b/back-end/back-end/Controllers/Static.cs
+index 2810b81..57c6bc3 100644
+--- a/back-end/back-end/Controllers/Static.cs
++++ b/back-end/back-end/Controllers/Static.cs
+@@ -40,7 +40,6 @@ namespace back_end.Controllers
+             if (clientEtag != null && clientEtag == etag)
+                 return StatusCode(StatusCodes.Status304NotModified);
+ 
+-            
+             _cache.SetHttpHeaders(Response, result.Value!, _settings.Static.maxage);
+ 
+             return Ok(result.Value);
+diff --git a/back-end/back-end/DTOs/Static.cs b/back-end/back-end/DTOs/Static.cs
+index 4857c29..ffa14c3 100644
+--- a/back-end/back-end/DTOs/Static.cs
++++ b/back-end/back-end/DTOs/Static.cs
+@@ -7,5 +7,6 @@
+         public List<StaticItemDTO> demographics { get; set; } = new();
+         public List<StaticItemDTO> genres { get; set; } = new();
+         public List<StaticItemDTO> themes { get; set; } = new();
++        public List<StaticItemDTO> languages { get; set; } = new();
+     }
+ }
+diff --git a/back-end/back-end/DTOs/Title.cs b/back-end/back-end/DTOs/Title.cs
+index 5899b82..b408216 100644
+--- a/back-end/back-end/DTOs/Title.cs
++++ b/back-end/back-end/DTOs/Title.cs
+@@ -13,6 +13,17 @@
+         {
+             public int id { get; set; }
+             public decimal number { get; set; }
++            public IEnumerable<ChapterTranslationDTO>? translations { get; set; } = new List<ChapterTranslationDTO>();
++        }
++        public class ChapterTranslationDTO
++        {
++            public int id { get; set; }
++            public string? chapterTitle { get; set; }
++            public string ScanGroupName { get; set; } = null!;
++            public bool isOfficial { get; set; }
++            public DateTime uploadedAt { get; set; }
++            public int viewCount { get; set; }
++            public int LanguageId { get; set; }
+         }
+ 
+         public int id { get; set; }
+@@ -29,7 +40,7 @@
+         public IEnumerable<int> themes { get; set; } = new List<int>();
+         public IEnumerable<string> authors { get; set; } = new List<string>();
+         public IEnumerable<string> artists { get; set; } = new List<string>();
+-        public IEnumerable<AlternativeNameDTO> alternativenames { get; set; } = new List<AlternativeNameDTO>();
+-        public IEnumerable<ChaptersDTO> chapters { get; set; } = new List<ChaptersDTO>();    
++        public IEnumerable<AlternativeNameDTO>? alternativenames { get; set; } = new List<AlternativeNameDTO>();
++        public IEnumerable<ChaptersDTO>? chapters { get; set; } = new List<ChaptersDTO>();    
+     }
+ }
+diff --git a/back-end/back-end/Database/AppDbContext.cs b/back-end/back-end/Database/AppDbContext.cs
+index 08170a3..93e282d 100644
+--- a/back-end/back-end/Database/AppDbContext.cs
++++ b/back-end/back-end/Database/AppDbContext.cs
+@@ -70,11 +70,10 @@ namespace back_end.Data
+                 e.Property(e => e.name).IsRequired().HasMaxLength(_validation.AlternativeName.ValueMaxLength);
+                 // Prevent cascading delete: deleting a Language should not remove AlternativeNames
+                 e.HasOne(e => e.Language)
+-                      .WithMany()
+-                      .HasForeignKey(e => e.LanguageId)
+-                      .OnDelete(DeleteBehavior.Restrict);
++                   .WithMany()
++                   .HasForeignKey(a => a.LanguageId)
++                   .OnDelete(DeleteBehavior.Restrict);
+             });
+-
+         }
+ 
+ 
+diff --git a/back-end/back-end/Database/AppDbContextFactory.cs b/back-end/back-end/Database/AppDbContextFactory.cs
+index cadfa6f..09d5d19 100644
+--- a/back-end/back-end/Database/AppDbContextFactory.cs
++++ b/back-end/back-end/Database/AppDbContextFactory.cs
+@@ -11,15 +11,20 @@ namespace back_end.Data
+         {
+             var configuration = new ConfigurationBuilder()
+                 .SetBasePath(Directory.GetCurrentDirectory())
+-                .AddJsonFile("appsettings.json")
++                .AddJsonFile("appsettings.json", optional: false)
++                .AddJsonFile("appsettings.Development.json")
+                 .Build();
+ 
++            var connectionString = configuration.GetConnectionString("Terminal")
++                ?? throw new InvalidOperationException("Connection string 'Terminal' not found.");
++
+             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
+-            optionsBuilder.UseNpgsql(configuration.GetConnectionString("Terminal"));
++            optionsBuilder.UseNpgsql(connectionString);
+ 
+             var validationSettings = configuration
+                 .GetSection("Database:Tables:Validation")
+-                .Get<ValidationSettings>();
++                .Get<ValidationSettings>()
++                ?? throw new InvalidOperationException("Seção 'Database:Tables:Validation' não encontrada no appsettings.json.");
+ 
+             return new AppDbContext(optionsBuilder.Options, Options.Create(validationSettings!));
+         }
+diff --git a/back-end/back-end/Database/DbAccess/Static.cs b/back-end/back-end/Database/DbAccess/Static.cs
+index 8257475..f36e182 100644
+--- a/back-end/back-end/Database/DbAccess/Static.cs
++++ b/back-end/back-end/Database/DbAccess/Static.cs
+@@ -51,6 +51,10 @@ namespace back_end.Database.DbAccess
+                     contentRatings = await _context.ContentRatings
+                 .Select(c => new StaticItemDTO { id = c.id, name = c.name })
+                 .ToListAsync(),
++
++                    languages = await _context.Languages
++                .Select(l => new StaticItemDTO { id = l.id, name = l.name })
++                .ToListAsync()
+                 };
+ 
+                 await _cache.SetAsync(_settings.Static.key, StaticData);
+diff --git a/back-end/back-end/Database/DbAccess/Title.cs b/back-end/back-end/Database/DbAccess/Title.cs
+index 903f298..fab1dc9 100644
+--- a/back-end/back-end/Database/DbAccess/Title.cs
++++ b/back-end/back-end/Database/DbAccess/Title.cs
+@@ -16,7 +16,10 @@ namespace back_end.Database.DbAccess
+             _context = context;
+         }
+ 
+-        private IQueryable<DTOs.Title> BuildQuery()
++        private IQueryable<DTOs.Title> BuildQuery(
++            bool includeChapters = false,
++            bool includeAlternativeNames = false
++            )
+         {
+             return _context.Titles
+             .AsNoTracking()
+@@ -38,16 +41,29 @@ namespace back_end.Database.DbAccess
+                 genres = t.Genre.Select(g => g.id),
+                 themes = t.Theme.Select(th => th.id),
+ 
+-                alternativenames = t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
++                alternativenames = includeAlternativeNames
++                ? t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
+                 {
+                     name = alt.name,
+                     languageId = alt.LanguageId
+-                }),
+-                chapters = t.Chapters.Select(c => new DTOs.Title.ChaptersDTO
++                })
++                : null,
++                chapters = includeChapters
++                ? t.Chapters.Select(c => new DTOs.Title.ChaptersDTO
+                 {
+                     id = c.id,
+-                    number = c.number
++                    number = c.number,
++                    translations = c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
++                    {
++                        id = ct.id,
++                        chapterTitle = ct.chapterTitle,
++                        uploadedAt = ct.uploadedAt,
++                        viewCount = ct.viewCount,
++                        ScanGroupName = ct.ScanGroup.name,
++                        LanguageId = ct.LanguageId
++                    })
+                 })
++                : null
+             });
+         }
+ 
+@@ -75,7 +91,7 @@ namespace back_end.Database.DbAccess
+         {
+             try
+             {
+-                IQueryable<DTOs.Title> query = BuildQuery();
++                IQueryable<DTOs.Title> query = BuildQuery(true, true);
+                 query = query.Where(t => t.id == id);
+                 List<DTOs.Title> title = await RunQuery(query);
+ 
+diff --git a/back-end/back-end/Database/Seeds/Seeder.cs b/back-end/back-end/Database/Seeds/Seeder.cs
+index 3c27035..c79d0c8 100644
+--- a/back-end/back-end/Database/Seeds/Seeder.cs
++++ b/back-end/back-end/Database/Seeds/Seeder.cs
+@@ -48,6 +48,50 @@ namespace back_end.Database.Seeds
+             _context.Chapters.AddRange(chapters);
+             await _context.SaveChangesAsync();
+         }
++        private async Task SeedChapterTranslations()
++        {
++            Random random = Random.Shared;
++            List<Models.Chapter> chapters = await _context.Chapters.ToListAsync();
++            List<Models.ScanGroup> scanGroups = await _context.ScanGroups.ToListAsync();
++            List<Models.Language> languages = await _context.Languages.ToListAsync();
++
++            List<Models.ChapterTranslation> translations = new List<Models.ChapterTranslation>();
++            int id = 1;
++
++            DateTime startDate = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
++            int totalDays = (DateTime.UtcNow - startDate).Days;
++
++            foreach (Models.Chapter chapter in chapters)
++            {
++                int qntTranslactions = random.Next(1, 5);
++                HashSet<(int scanGroupId, int languageId)> usedCombinations = new();
++
++                int attempts = 0;
++                while (usedCombinations.Count < qntTranslactions && attempts < 50)
++                {
++                    attempts++;
++                    int scanGroupId = scanGroups[random.Next(scanGroups.Count)].id;
++                    int languageId = languages[random.Next(languages.Count)].id;
++
++                    if (!usedCombinations.Add((scanGroupId, languageId)))
++                        continue; 
++
++                    translations.Add(new Models.ChapterTranslation
++                    {
++                        id = id++,
++                        chapterTitle = "Test",
++                        ChapterId = chapter.id,
++                        ScanGroupId = scanGroupId,
++                        LanguageId = languageId,
++                        uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400)),
++                        viewCount = random.Next(0, 10000)
++                    });
++                }
++            }
++
++            _context.ChapterTranslations.AddRange(translations);
++            await _context.SaveChangesAsync();
++        }
+ 
+         public async Task Run(int rows)
+         {
+@@ -73,7 +117,7 @@ namespace back_end.Database.Seeds
+             await _DbSeeds.Run<Models.AlternativeName>("AlternativeNames", rows, new Models.AlternativeName { name = "Alternative Name" });
+             await _DbSeeds.Run<Models.ScanGroup>("ScanGroups", rows, new Models.ScanGroup { name = "ScanGroup", websiteUrl = "teste" });
+             await SeedChapters();
+-            await _DbSeeds.Run<Models.ChapterTranslation>("ChapterTranslations", rows, new Models.ChapterTranslation { chapterTitle = "Teste" });
++            await SeedChapterTranslations();
+         }
+     }
+ }
+\ No newline at end of file
+diff --git a/back-end/back-end/Database/Seeds/StaticSeed.json b/back-end/back-end/Database/Seeds/StaticSeed.json
+index 938e1eb..0ec1653 100644
+--- a/back-end/back-end/Database/Seeds/StaticSeed.json
++++ b/back-end/back-end/Database/Seeds/StaticSeed.json
+@@ -79,6 +79,8 @@
+     ],
+     "Languages": [
+         "pt-br",
+-        "en"
++        "en",
++        "jp",
++        "es"
+     ]
+ }
+\ No newline at end of file
+diff --git a/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+index 2587b2c..48cf25a 100644
+--- a/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
++++ b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+@@ -93,6 +93,9 @@ namespace back_end.Migrations
+                     b.Property<int>("LanguageId")
+                         .HasColumnType("integer");
+ 
++                    b.Property<int?>("Languageid")
++                        .HasColumnType("integer");
++
+                     b.Property<int>("TitleId")
+                         .HasColumnType("integer");
+ 
+@@ -105,6 +108,8 @@ namespace back_end.Migrations
+ 
+                     b.HasIndex("LanguageId");
+ 
++                    b.HasIndex("Languageid");
++
+                     b.HasIndex("TitleId");
+ 
+                     b.ToTable("AlternativeNames");
+@@ -190,9 +195,6 @@ namespace back_end.Migrations
+                         .HasMaxLength(255)
+                         .HasColumnType("character varying(255)");
+ 
+-                    b.Property<bool>("isOfficial")
+-                        .HasColumnType("boolean");
+-
+                     b.Property<DateTime>("uploadedAt")
+                         .HasColumnType("timestamp with time zone");
+ 
+@@ -456,6 +458,10 @@ namespace back_end.Migrations
+                         .OnDelete(DeleteBehavior.Restrict)
+                         .IsRequired();
+ 
++                    b.HasOne("back_end.Models.Language", null)
++                        .WithMany("AlternativeNames")
++                        .HasForeignKey("Languageid");
++
+                     b.HasOne("back_end.Models.Title", "Title")
+                         .WithMany("AlternativeNames")
+                         .HasForeignKey("TitleId")
+@@ -549,6 +555,8 @@ namespace back_end.Migrations
+ 
+             modelBuilder.Entity("back_end.Models.Language", b =>
+                 {
++                    b.Navigation("AlternativeNames");
++
+                     b.Navigation("ChapterTranslation");
+                 });
+ 
+diff --git a/back-end/back-end/Models/Chapter.cs b/back-end/back-end/Models/Chapter.cs
+index 6a4efb1..6ff9f6e 100644
+--- a/back-end/back-end/Models/Chapter.cs
++++ b/back-end/back-end/Models/Chapter.cs
+@@ -5,7 +5,6 @@
+         public int id { get; set; }
+         public int TitleId { get; set; }
+         public decimal number { get; set; }
+-
+         public Models.Title Title { get; set; } = null!;
+         public ICollection<Models.ChapterTranslation> ChapterTranslation { get; set; } = new List<Models.ChapterTranslation>();
+     }
+diff --git a/back-end/back-end/Models/ChapterTranslation.cs b/back-end/back-end/Models/ChapterTranslation.cs
+index eb5541e..f377aef 100644
+--- a/back-end/back-end/Models/ChapterTranslation.cs
++++ b/back-end/back-end/Models/ChapterTranslation.cs
+@@ -4,7 +4,6 @@
+     {
+         public int id { get; set; }
+         public string? chapterTitle { get; set; }
+-        public bool isOfficial { get; set; } = false;
+         public DateTime uploadedAt { get; set; } = DateTime.UtcNow;
+         public int viewCount { get; set; } = 0;
+ 
+diff --git a/back-end/back-end/Models/Language.cs b/back-end/back-end/Models/Language.cs
+index fb0309e..0cea106 100644
+--- a/back-end/back-end/Models/Language.cs
++++ b/back-end/back-end/Models/Language.cs
+@@ -5,7 +5,6 @@
+         public int id { get; set; }
+         public string name { get; set; } = string.Empty; // "pt-br", "en", "es"
+         public ICollection<Models.ChapterTranslation> ChapterTranslation { get; set; } = new List<Models.ChapterTranslation>();
+-        // public ICollection<Models.AlternativeName> AlternativeNames { get; set; } = new List<Models.AlternativeName>();
+-
++        public ICollection<Models.AlternativeName> AlternativeNames { get; set; } = new List<Models.AlternativeName>();
+     }
+ }
+diff --git a/head.txt b/head.txt
+deleted file mode 100644
+index 4ea09e0..0000000
+--- a/head.txt
++++ /dev/null
+@@ -1,2728 +0,0 @@
+-commit 88a5e8e22cf9e25586af93595add92b475b0b800
+-Author: CarlosOT <135380086+CarlosOT2@users.noreply.github.com>
+-Date:   Wed Jul 1 21:48:24 2026 -0300
+-
+-    Setup production deployment and database migration
+-    
+-    - Add Docker Compose production configuration
+-    - Add appsettings.Production.json for production environment
+-    - Add database migration (SetupMigration) and seeder
+-    - Update deploy.yml GitHub Actions workflow
+-    - Update .gitignore
+-    - Fix Seeds.cs and Static.cs controllers
+-    - Remove docker-compose.override.yml and diff.txt
+-
+-diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+-index bdf3778..5fab72e 100644
+---- a/.github/workflows/deploy.yml
+-+++ b/.github/workflows/deploy.yml
+-@@ -17,68 +17,28 @@ jobs:
+-           dotnet-version: '8.0.x'  
+- 
+-       - name: Restore dependencies
+--        run: dotnet restore
+-+        run: dotnet restore back-end/back-end.sln
+- 
+-       - name: Build
+--        run: dotnet build --no-restore --configuration Release
+-+        run: dotnet build back-end/back-end.sln --no-restore --configuration Release
+- 
+-       - name: Run tests
+--        run: dotnet test --no-build --configuration Release --verbosity normal
+-+        run: dotnet test back-end/back-end.sln --no-build --configuration Release --verbosity normal
+-   deploy:
+-     needs: test
+-     runs-on: ubuntu-latest
+- 
+-     steps:
+--      - name: Checkout code
+--        uses: actions/checkout@v4
+--
+--      - name: Setup .NET
+--        uses: actions/setup-dotnet@v4
+--        with:
+--          dotnet-version: '8.0.x'
+--
+--      - name: Publish
+--        run: dotnet publish back-end/back-end.csproj -c Release -o publish
+--
+--      - name: Create release folder on VPS
+--        uses: appleboy/ssh-action@v1.0.3
+--        with:
+--          host: ${{ secrets.VPS_HOST }}
+--          username: ${{ secrets.VPS_USER }}
+--          key: ${{ secrets.SSH_PRIVATE_KEY }}
+--          script: |
+--            RELEASE=${{ secrets.VPS_PATH }}/releases/${{ github.sha }}
+--            mkdir -p $RELEASE
+--
+--      - name: Upload files to VPS
+--        uses: appleboy/scp-action@v0.1.7
+--        with:
+--          host: ${{ secrets.VPS_HOST }}
+--          username: ${{ secrets.VPS_USER }}
+--          key: ${{ secrets.SSH_PRIVATE_KEY }}
+--          source: "publish/*"
+--          target: "${{ secrets.VPS_PATH }}/releases/${{ github.sha }}"
+--
+--      - name: Switch release + restart
+--        uses: appleboy/ssh-action@v1.0.3
+--        with:
+--          host: ${{ secrets.VPS_HOST }}
+--          username: ${{ secrets.VPS_USER }}
+--          key: ${{ secrets.SSH_PRIVATE_KEY }}
+--          script: |
+--            ln -sfn ${{ secrets.VPS_PATH }}/releases/${{ github.sha }} ${{ secrets.VPS_PATH }}/current
+--            sudo systemctl restart backend
+--
+--      - name: Cleanup old releases
+-+      - name: Deploy via SSH
+-         uses: appleboy/ssh-action@v1.0.3
+-         with:
+-           host: ${{ secrets.VPS_HOST }}
+-           username: ${{ secrets.VPS_USER }}
+-           key: ${{ secrets.SSH_PRIVATE_KEY }}
+-           script: |
+--            cd ${{ secrets.VPS_PATH }}/releases
+--            find . -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\0' \
+--              | sort -znr \
+--              | cut -zd' ' -f2- \
+--              | tail -zn +5 \
+--              | xargs -0 -r rm -rf
+-\ No newline at end of file
+-+            set -e
+-+            cd "${{ secrets.VPS_PATH }}"
+-+            git pull origin main
+-+            export DB_PASSWORD="${{ secrets.VPS_DB_PASSWORD }}"
+-+            docker compose -p onlinemanga -f back-end/docker-compose.prod.yml up -d --build
+-+            docker image prune -f
+-diff --git a/.gitignore b/.gitignore
+-index a7d9fc3..a951f7a 100644
+---- a/.gitignore
+-+++ b/.gitignore
+-@@ -1,5 +1,5 @@
+--## RAIZ 
+--# VS Code / sistema
+-+## ROOT
+-+# VS Code / System
+- .vscode/
+- .vs/
+- *.suo
+-@@ -16,11 +16,9 @@ Thumbs.db
+- # Build
+- back-end/**/bin/
+- back-end/**/obj/
+-+docker-compose.override.yml
+- 
+--# Migrations (se geradas automaticamente)
+--back-end/**/Migrations/
+--
+--# Arquivos de usuário específicos do VS
+-+# VS user-specific files
+- back-end/**/*.user
+- back-end/**/*.dbmdl
+- back-end/**/*.cache
+-diff --git a/back-end/back-end/Controllers/Seeds.cs b/back-end/back-end/Controllers/Seeds.cs
+-index 6f4f296..00a6094 100644
+---- a/back-end/back-end/Controllers/Seeds.cs
+-+++ b/back-end/back-end/Controllers/Seeds.cs
+-@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
+- using back_end.Database.DbAccess;
+- using Microsoft.EntityFrameworkCore;
+- using System.Runtime.Intrinsics.X86;
+-+using back_end.Database.Seeds;
+- 
+- namespace back_end.Controllers
+- {
+-@@ -12,45 +13,13 @@ namespace back_end.Controllers
+-     {
+-         private readonly AppDbContext _context;
+-         private readonly DbSeeds _DbSeeds;
+-+        private readonly Seeder _seeder;
+- 
+-         public Seeds(AppDbContext context)
+-         {
+-             _context = context;
+--            _DbSeeds = new DbSeeds(context); 
+--        }
+--
+--        // Chapter seeding is done manually because each title requires multiple chapters
+--        // with unique and ordered numbers — something that couldn't be easily implemented
+--        // in the generic DbSeeds.Run<T>() method.
+--        private async Task SeedChapters()
+--        {
+--            Random random = Random.Shared;
+--            List<Models.Title> titles = await _context.Titles.ToListAsync();
+--            List<Models.Chapter> chapters = new List<Models.Chapter>()!;
+--
+--            int id = 1;
+--            foreach (Models.Title title in titles)
+--            {
+--                int totalChapters = random.Next(1, 201);
+--                SortedSet<decimal> chapterNumbers = new SortedSet<decimal>()!;
+--
+--                while (chapterNumbers.Count < totalChapters)
+--                {
+--                    double roll = random.NextDouble();
+--                    decimal number = roll < 0.05 ? random.Next(151, 201)
+--                                   : roll < 0.25 ? random.Next(51, 151)
+--                                   : random.Next(1, 51);
+--
+--                    decimal fraction = random.NextDouble() < 0.7 ? 0m : random.Next(1, 10) / 10m;
+--                    chapterNumbers.Add(number + fraction);
+--                }
+--
+--                foreach (decimal number in chapterNumbers)
+--                    chapters.Add(new Models.Chapter { id = id++, TitleId = title.id, number = number });
+--            }
+--
+--            _context.Chapters.AddRange(chapters);
+--            await _context.SaveChangesAsync();
+-+            _seeder = new Seeder(context);
+-+            _DbSeeds = new DbSeeds(context);
+-         }
+- 
+-         [HttpPost("Static")]
+-@@ -63,29 +32,7 @@ namespace back_end.Controllers
+-         [HttpPost("Seed")]
+-         public async Task<IActionResult> Seed([FromBody] int rows = 500)
+-         {
+--            await _DbSeeds.Clear();
+--            await _DbSeeds.Static();
+--
+--            await _DbSeeds.Run<Models.Title>("Titles", rows, new Models.Title {
+--                name = "Manga",    
+--                synopsis = "A 34-year-old NEET gets killed in a traffic accident and finds himself in a world of magic. " +
+--                "Rather than waking up as a full-grown mage, he gets reincarnated as a newborn baby, retaining the memories of his past life. " +
+--                "Before he can even properly move his body, " +
+--                "he resolves to never make the same mistakes he made in his first life ever again and instead live a life with no regrets with the new one that was given " +
+--                "to him. Because he has the knowledge of a middle-aged man, by the age of two, he has already become a prodigy and possesses power unthinkable for " +
+--                "anyone his age and even older. Thus begins the chronicles of Rudeus Greyrat, son of swordsman Paul and healer Zenith, as he enters a new world to " +
+--                "become the strongest mage known to man, with powers rivaling even the gods themselves.",
+--                // this prop will generate random dates starting from this date
+--                publicationDate = new DateTime(2000, 1, 1, 0, 0, 0),
+--                img = "image",
+--            });
+--            await _DbSeeds.Run<Models.Artist>("Artists", rows, new Models.Artist { name = "Artist" });
+--            await _DbSeeds.Run<Models.Author>("Authors", rows, new Models.Author { name = "Author" });
+--            await _DbSeeds.Run<Models.AlternativeName>("AlternativeNames", rows, new Models.AlternativeName { name = "Alternative Name" });
+--            await _DbSeeds.Run<Models.ScanGroup>("ScanGroups", rows, new Models.ScanGroup { name = "ScanGroup", websiteUrl = "teste" });
+--            await SeedChapters();
+--            await _DbSeeds.Run<Models.ChapterTranslation>("ChapterTranslations", rows, new Models.ChapterTranslation { chapterTitle = "Teste" });
+--
+-+            await _seeder.Run(rows);
+-             return Ok("Seed executed");
+-         }
+- 
+-diff --git a/back-end/back-end/Controllers/Static.cs b/back-end/back-end/Controllers/Static.cs
+-index 40ae5aa..2810b81 100644
+---- a/back-end/back-end/Controllers/Static.cs
+-+++ b/back-end/back-end/Controllers/Static.cs
+-@@ -29,7 +29,6 @@ namespace back_end.Controllers
+-         public async Task<ActionResult<DTOs.Static>> GetAllStaticData()
+-         {
+-             //? Variables
+--            System.Diagnostics.Debug.WriteLine("Oi53");
+-             Result<DTOs.Static> result = await _dbAccess.GetAllStaticData();
+- 
+-             if (result.IsFailure)
+-diff --git a/back-end/back-end/Database/Seeds/Seeder.cs b/back-end/back-end/Database/Seeds/Seeder.cs
+-new file mode 100644
+-index 0000000..3c27035
+---- /dev/null
+-+++ b/back-end/back-end/Database/Seeds/Seeder.cs
+-@@ -0,0 +1,79 @@
+-+﻿using back_end.Data;
+-+using back_end.Database.DbAccess;
+-+using Microsoft.EntityFrameworkCore;
+-+
+-+namespace back_end.Database.Seeds
+-+{
+-+    public class Seeder
+-+    {
+-+        private readonly AppDbContext _context;
+-+        private readonly DbSeeds _DbSeeds;
+-+
+-+        public Seeder(AppDbContext context)
+-+        {
+-+            _context = context;
+-+            _DbSeeds = new DbSeeds(context);
+-+        }
+-+
+-+        // Chapter seeding is done manually because each title requires multiple chapters
+-+        // with unique and ordered numbers — something that couldn't be easily implemented
+-+        // in the generic DbSeeds.Run<T>() method.
+-+        private async Task SeedChapters()
+-+        {
+-+            Random random = Random.Shared;
+-+            List<Models.Title> titles = await _context.Titles.ToListAsync();
+-+            List<Models.Chapter> chapters = new List<Models.Chapter>()!;
+-+
+-+            int id = 1;
+-+            foreach (Models.Title title in titles)
+-+            {
+-+                int totalChapters = random.Next(1, 201);
+-+                SortedSet<decimal> chapterNumbers = new SortedSet<decimal>()!;
+-+
+-+                while (chapterNumbers.Count < totalChapters)
+-+                {
+-+                    double roll = random.NextDouble();
+-+                    decimal number = roll < 0.05 ? random.Next(151, 201)
+-+                                   : roll < 0.25 ? random.Next(51, 151)
+-+                                   : random.Next(1, 51);
+-+
+-+                    decimal fraction = random.NextDouble() < 0.7 ? 0m : random.Next(1, 10) / 10m;
+-+                    chapterNumbers.Add(number + fraction);
+-+                }
+-+
+-+                foreach (decimal number in chapterNumbers)
+-+                    chapters.Add(new Models.Chapter { id = id++, TitleId = title.id, number = number });
+-+            }
+-+
+-+            _context.Chapters.AddRange(chapters);
+-+            await _context.SaveChangesAsync();
+-+        }
+-+
+-+        public async Task Run(int rows)
+-+        {
+-+            await _DbSeeds.Clear();
+-+            await _DbSeeds.Static();
+-+
+-+            await _DbSeeds.Run<Models.Title>("Titles", rows, new Models.Title
+-+            {
+-+                name = "Manga",
+-+                synopsis = "A 34-year-old NEET gets killed in a traffic accident and finds himself in a world of magic. " +
+-+                "Rather than waking up as a full-grown mage, he gets reincarnated as a newborn baby, retaining the memories of his past life. " +
+-+                "Before he can even properly move his body, " +
+-+                "he resolves to never make the same mistakes he made in his first life ever again and instead live a life with no regrets with the new one that was given " +
+-+                "to him. Because he has the knowledge of a middle-aged man, by the age of two, he has already become a prodigy and possesses power unthinkable for " +
+-+                "anyone his age and even older. Thus begins the chronicles of Rudeus Greyrat, son of swordsman Paul and healer Zenith, as he enters a new world to " +
+-+                "become the strongest mage known to man, with powers rivaling even the gods themselves.",
+-+                // this prop will generate random dates starting from this date
+-+                publicationDate = new DateTime(2000, 1, 1, 0, 0, 0),
+-+                img = "image",
+-+            });
+-+            await _DbSeeds.Run<Models.Artist>("Artists", rows, new Models.Artist { name = "Artist" });
+-+            await _DbSeeds.Run<Models.Author>("Authors", rows, new Models.Author { name = "Author" });
+-+            await _DbSeeds.Run<Models.AlternativeName>("AlternativeNames", rows, new Models.AlternativeName { name = "Alternative Name" });
+-+            await _DbSeeds.Run<Models.ScanGroup>("ScanGroups", rows, new Models.ScanGroup { name = "ScanGroup", websiteUrl = "teste" });
+-+            await SeedChapters();
+-+            await _DbSeeds.Run<Models.ChapterTranslation>("ChapterTranslations", rows, new Models.ChapterTranslation { chapterTitle = "Teste" });
+-+        }
+-+    }
+-+}
+-\ No newline at end of file
+-diff --git a/back-end/back-end/Migrations/20260610014607_SetupMigration.Designer.cs b/back-end/back-end/Migrations/20260610014607_SetupMigration.Designer.cs
+-new file mode 100644
+-index 0000000..3bb0e83
+---- /dev/null
+-+++ b/back-end/back-end/Migrations/20260610014607_SetupMigration.Designer.cs
+-@@ -0,0 +1,577 @@
+-+﻿// <auto-generated />
+-+using System;
+-+using Microsoft.EntityFrameworkCore;
+-+using Microsoft.EntityFrameworkCore.Infrastructure;
+-+using Microsoft.EntityFrameworkCore.Migrations;
+-+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+-+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+-+using back_end.Data;
+-+
+-+#nullable disable
+-+
+-+namespace back_end.Migrations
+-+{
+-+    [DbContext(typeof(AppDbContext))]
+-+    [Migration("20260610014607_SetupMigration")]
+-+    partial class SetupMigration
+-+    {
+-+        /// <inheritdoc />
+-+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
+-+        {
+-+#pragma warning disable 612, 618
+-+            modelBuilder
+-+                .HasAnnotation("ProductVersion", "9.0.6")
+-+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+-+
+-+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+-+
+-+            modelBuilder.Entity("ArtistTitle", b =>
+-+                {
+-+                    b.Property<int>("Artistid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Artistid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("ArtistTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("AuthorTitle", b =>
+-+                {
+-+                    b.Property<int>("Authorid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Authorid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("AuthorTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("GenreTitle", b =>
+-+                {
+-+                    b.Property<int>("Genreid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Genreid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("GenreTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("ThemeTitle", b =>
+-+                {
+-+                    b.Property<int>("Themeid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Themeid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("ThemeTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.AlternativeName", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("LanguageId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("TitleId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasMaxLength(500)
+-+                        .HasColumnType("character varying(500)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("LanguageId");
+-+
+-+                    b.HasIndex("TitleId");
+-+
+-+                    b.ToTable("AlternativeNames");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Artist", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Artists");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Author", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Authors");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("TitleId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<decimal>("number")
+-+                        .HasColumnType("decimal(5,1)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("TitleId", "number")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("Chapters", t =>
+-+                        {
+-+                            t.HasCheckConstraint("CK_ChapterNumber", "number >= 0");
+-+                        });
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ChapterTranslation", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("ChapterId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("LanguageId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("ScanGroupId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("chapterTitle")
+-+                        .HasMaxLength(255)
+-+                        .HasColumnType("character varying(255)");
+-+
+-+                    b.Property<bool>("isOfficial")
+-+                        .HasColumnType("boolean");
+-+
+-+                    b.Property<DateTime>("uploadedAt")
+-+                        .HasColumnType("timestamp with time zone");
+-+
+-+                    b.Property<int>("viewCount")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("LanguageId");
+-+
+-+                    b.HasIndex("ScanGroupId");
+-+
+-+                    b.HasIndex("ChapterId", "ScanGroupId", "LanguageId")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("ChapterTranslations", t =>
+-+                        {
+-+                            t.HasCheckConstraint("CK_ChapterTranslation_ViewCount", "\"viewCount\" >= 0");
+-+                        });
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ContentRating", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("ContentRatings");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Demographic", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Demographics");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Genre", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Genres");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Language", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Languages");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ScanGroup", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<bool>("isActive")
+-+                        .HasColumnType("boolean");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.Property<string>("websiteUrl")
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("ScanGroups");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Status", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Statuses");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Theme", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Themes");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("ContentRatingId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("DemographicId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("StatusId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("img")
+-+                        .IsRequired()
+-+                        .HasMaxLength(500)
+-+                        .HasColumnType("character varying(500)");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasMaxLength(255)
+-+                        .HasColumnType("character varying(255)");
+-+
+-+                    b.Property<DateTime>("publicationDate")
+-+                        .HasColumnType("timestamp with time zone");
+-+
+-+                    b.Property<string>("synopsis")
+-+                        .IsRequired()
+-+                        .HasMaxLength(5000)
+-+                        .HasColumnType("character varying(5000)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("ContentRatingId");
+-+
+-+                    b.HasIndex("DemographicId");
+-+
+-+                    b.HasIndex("StatusId");
+-+
+-+                    b.HasIndex("name")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("Titles");
+-+                });
+-+
+-+            modelBuilder.Entity("ArtistTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Artist", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Artistid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("AuthorTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Author", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Authorid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("GenreTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Genre", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Genreid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("ThemeTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Theme", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Themeid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.AlternativeName", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Language", "Language")
+-+                        .WithMany()
+-+                        .HasForeignKey("LanguageId")
+-+                        .OnDelete(DeleteBehavior.Restrict)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", "Title")
+-+                        .WithMany("AlternativeNames")
+-+                        .HasForeignKey("TitleId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Language");
+-+
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Title", "Title")
+-+                        .WithMany("Chapters")
+-+                        .HasForeignKey("TitleId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ChapterTranslation", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Chapter", "Chapter")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("ChapterId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Language", "Language")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("LanguageId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.ScanGroup", "ScanGroup")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("ScanGroupId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Chapter");
+-+
+-+                    b.Navigation("Language");
+-+
+-+                    b.Navigation("ScanGroup");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.ContentRating", "ContentRating")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("ContentRatingId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Demographic", "Demographic")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("DemographicId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Status", "Status")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("StatusId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("ContentRating");
+-+
+-+                    b.Navigation("Demographic");
+-+
+-+                    b.Navigation("Status");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ContentRating", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Demographic", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Language", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ScanGroup", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Status", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.Navigation("AlternativeNames");
+-+
+-+                    b.Navigation("Chapters");
+-+                });
+-+#pragma warning restore 612, 618
+-+        }
+-+    }
+-+}
+-diff --git a/back-end/back-end/Migrations/20260610014607_SetupMigration.cs b/back-end/back-end/Migrations/20260610014607_SetupMigration.cs
+-new file mode 100644
+-index 0000000..abe6e3f
+---- /dev/null
+-+++ b/back-end/back-end/Migrations/20260610014607_SetupMigration.cs
+-@@ -0,0 +1,482 @@
+-+﻿using System;
+-+using Microsoft.EntityFrameworkCore.Migrations;
+-+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+-+
+-+#nullable disable
+-+
+-+namespace back_end.Migrations
+-+{
+-+    /// <inheritdoc />
+-+    public partial class SetupMigration : Migration
+-+    {
+-+        /// <inheritdoc />
+-+        protected override void Up(MigrationBuilder migrationBuilder)
+-+        {
+-+            migrationBuilder.CreateTable(
+-+                name: "Artists",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Artists", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Authors",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Authors", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "ContentRatings",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_ContentRatings", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Demographics",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Demographics", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Genres",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Genres", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Languages",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Languages", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "ScanGroups",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false),
+-+                    websiteUrl = table.Column<string>(type: "text", nullable: true),
+-+                    isActive = table.Column<bool>(type: "boolean", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_ScanGroups", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Statuses",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Statuses", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Themes",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "text", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Themes", x => x.id);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Titles",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+-+                    synopsis = table.Column<string>(type: "character varying(5000)", maxLength: 5000, nullable: false),
+-+                    publicationDate = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-+                    img = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+-+                    DemographicId = table.Column<int>(type: "integer", nullable: false),
+-+                    ContentRatingId = table.Column<int>(type: "integer", nullable: false),
+-+                    StatusId = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Titles", x => x.id);
+-+                    table.ForeignKey(
+-+                        name: "FK_Titles_ContentRatings_ContentRatingId",
+-+                        column: x => x.ContentRatingId,
+-+                        principalTable: "ContentRatings",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_Titles_Demographics_DemographicId",
+-+                        column: x => x.DemographicId,
+-+                        principalTable: "Demographics",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_Titles_Statuses_StatusId",
+-+                        column: x => x.StatusId,
+-+                        principalTable: "Statuses",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "AlternativeNames",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    name = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+-+                    LanguageId = table.Column<int>(type: "integer", nullable: false),
+-+                    TitleId = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_AlternativeNames", x => x.id);
+-+                    table.ForeignKey(
+-+                        name: "FK_AlternativeNames_Languages_LanguageId",
+-+                        column: x => x.LanguageId,
+-+                        principalTable: "Languages",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Restrict);
+-+                    table.ForeignKey(
+-+                        name: "FK_AlternativeNames_Titles_TitleId",
+-+                        column: x => x.TitleId,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "ArtistTitle",
+-+                columns: table => new
+-+                {
+-+                    Artistid = table.Column<int>(type: "integer", nullable: false),
+-+                    Titleid = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_ArtistTitle", x => new { x.Artistid, x.Titleid });
+-+                    table.ForeignKey(
+-+                        name: "FK_ArtistTitle_Artists_Artistid",
+-+                        column: x => x.Artistid,
+-+                        principalTable: "Artists",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_ArtistTitle_Titles_Titleid",
+-+                        column: x => x.Titleid,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "AuthorTitle",
+-+                columns: table => new
+-+                {
+-+                    Authorid = table.Column<int>(type: "integer", nullable: false),
+-+                    Titleid = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_AuthorTitle", x => new { x.Authorid, x.Titleid });
+-+                    table.ForeignKey(
+-+                        name: "FK_AuthorTitle_Authors_Authorid",
+-+                        column: x => x.Authorid,
+-+                        principalTable: "Authors",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_AuthorTitle_Titles_Titleid",
+-+                        column: x => x.Titleid,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "Chapters",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    TitleId = table.Column<int>(type: "integer", nullable: false),
+-+                    number = table.Column<decimal>(type: "numeric(5,1)", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_Chapters", x => x.id);
+-+                    table.CheckConstraint("CK_ChapterNumber", "number >= 0");
+-+                    table.ForeignKey(
+-+                        name: "FK_Chapters_Titles_TitleId",
+-+                        column: x => x.TitleId,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "GenreTitle",
+-+                columns: table => new
+-+                {
+-+                    Genreid = table.Column<int>(type: "integer", nullable: false),
+-+                    Titleid = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_GenreTitle", x => new { x.Genreid, x.Titleid });
+-+                    table.ForeignKey(
+-+                        name: "FK_GenreTitle_Genres_Genreid",
+-+                        column: x => x.Genreid,
+-+                        principalTable: "Genres",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_GenreTitle_Titles_Titleid",
+-+                        column: x => x.Titleid,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "ThemeTitle",
+-+                columns: table => new
+-+                {
+-+                    Themeid = table.Column<int>(type: "integer", nullable: false),
+-+                    Titleid = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_ThemeTitle", x => new { x.Themeid, x.Titleid });
+-+                    table.ForeignKey(
+-+                        name: "FK_ThemeTitle_Themes_Themeid",
+-+                        column: x => x.Themeid,
+-+                        principalTable: "Themes",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_ThemeTitle_Titles_Titleid",
+-+                        column: x => x.Titleid,
+-+                        principalTable: "Titles",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateTable(
+-+                name: "ChapterTranslations",
+-+                columns: table => new
+-+                {
+-+                    id = table.Column<int>(type: "integer", nullable: false)
+-+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+-+                    chapterTitle = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: true),
+-+                    isOfficial = table.Column<bool>(type: "boolean", nullable: false),
+-+                    uploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+-+                    viewCount = table.Column<int>(type: "integer", nullable: false),
+-+                    ChapterId = table.Column<int>(type: "integer", nullable: false),
+-+                    ScanGroupId = table.Column<int>(type: "integer", nullable: false),
+-+                    LanguageId = table.Column<int>(type: "integer", nullable: false)
+-+                },
+-+                constraints: table =>
+-+                {
+-+                    table.PrimaryKey("PK_ChapterTranslations", x => x.id);
+-+                    table.CheckConstraint("CK_ChapterTranslation_ViewCount", "\"viewCount\" >= 0");
+-+                    table.ForeignKey(
+-+                        name: "FK_ChapterTranslations_Chapters_ChapterId",
+-+                        column: x => x.ChapterId,
+-+                        principalTable: "Chapters",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_ChapterTranslations_Languages_LanguageId",
+-+                        column: x => x.LanguageId,
+-+                        principalTable: "Languages",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                    table.ForeignKey(
+-+                        name: "FK_ChapterTranslations_ScanGroups_ScanGroupId",
+-+                        column: x => x.ScanGroupId,
+-+                        principalTable: "ScanGroups",
+-+                        principalColumn: "id",
+-+                        onDelete: ReferentialAction.Cascade);
+-+                });
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_AlternativeNames_LanguageId",
+-+                table: "AlternativeNames",
+-+                column: "LanguageId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_AlternativeNames_TitleId",
+-+                table: "AlternativeNames",
+-+                column: "TitleId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_ArtistTitle_Titleid",
+-+                table: "ArtistTitle",
+-+                column: "Titleid");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_AuthorTitle_Titleid",
+-+                table: "AuthorTitle",
+-+                column: "Titleid");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_Chapters_TitleId_number",
+-+                table: "Chapters",
+-+                columns: new[] { "TitleId", "number" },
+-+                unique: true);
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_ChapterTranslations_ChapterId_ScanGroupId_LanguageId",
+-+                table: "ChapterTranslations",
+-+                columns: new[] { "ChapterId", "ScanGroupId", "LanguageId" },
+-+                unique: true);
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_ChapterTranslations_LanguageId",
+-+                table: "ChapterTranslations",
+-+                column: "LanguageId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_ChapterTranslations_ScanGroupId",
+-+                table: "ChapterTranslations",
+-+                column: "ScanGroupId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_GenreTitle_Titleid",
+-+                table: "GenreTitle",
+-+                column: "Titleid");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_ThemeTitle_Titleid",
+-+                table: "ThemeTitle",
+-+                column: "Titleid");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_Titles_ContentRatingId",
+-+                table: "Titles",
+-+                column: "ContentRatingId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_Titles_DemographicId",
+-+                table: "Titles",
+-+                column: "DemographicId");
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_Titles_name",
+-+                table: "Titles",
+-+                column: "name",
+-+                unique: true);
+-+
+-+            migrationBuilder.CreateIndex(
+-+                name: "IX_Titles_StatusId",
+-+                table: "Titles",
+-+                column: "StatusId");
+-+        }
+-+
+-+        /// <inheritdoc />
+-+        protected override void Down(MigrationBuilder migrationBuilder)
+-+        {
+-+            migrationBuilder.DropTable(
+-+                name: "AlternativeNames");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "ArtistTitle");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "AuthorTitle");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "ChapterTranslations");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "GenreTitle");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "ThemeTitle");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Artists");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Authors");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Chapters");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Languages");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "ScanGroups");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Genres");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Themes");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Titles");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "ContentRatings");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Demographics");
+-+
+-+            migrationBuilder.DropTable(
+-+                name: "Statuses");
+-+        }
+-+    }
+-+}
+-diff --git a/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+-new file mode 100644
+-index 0000000..2587b2c
+---- /dev/null
+-+++ b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+-@@ -0,0 +1,574 @@
+-+﻿// <auto-generated />
+-+using System;
+-+using Microsoft.EntityFrameworkCore;
+-+using Microsoft.EntityFrameworkCore.Infrastructure;
+-+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+-+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+-+using back_end.Data;
+-+
+-+#nullable disable
+-+
+-+namespace back_end.Migrations
+-+{
+-+    [DbContext(typeof(AppDbContext))]
+-+    partial class AppDbContextModelSnapshot : ModelSnapshot
+-+    {
+-+        protected override void BuildModel(ModelBuilder modelBuilder)
+-+        {
+-+#pragma warning disable 612, 618
+-+            modelBuilder
+-+                .HasAnnotation("ProductVersion", "9.0.6")
+-+                .HasAnnotation("Relational:MaxIdentifierLength", 63);
+-+
+-+            NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
+-+
+-+            modelBuilder.Entity("ArtistTitle", b =>
+-+                {
+-+                    b.Property<int>("Artistid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Artistid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("ArtistTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("AuthorTitle", b =>
+-+                {
+-+                    b.Property<int>("Authorid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Authorid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("AuthorTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("GenreTitle", b =>
+-+                {
+-+                    b.Property<int>("Genreid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Genreid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("GenreTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("ThemeTitle", b =>
+-+                {
+-+                    b.Property<int>("Themeid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("Titleid")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("Themeid", "Titleid");
+-+
+-+                    b.HasIndex("Titleid");
+-+
+-+                    b.ToTable("ThemeTitle");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.AlternativeName", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("LanguageId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("TitleId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasMaxLength(500)
+-+                        .HasColumnType("character varying(500)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("LanguageId");
+-+
+-+                    b.HasIndex("TitleId");
+-+
+-+                    b.ToTable("AlternativeNames");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Artist", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Artists");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Author", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Authors");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("TitleId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<decimal>("number")
+-+                        .HasColumnType("decimal(5,1)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("TitleId", "number")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("Chapters", t =>
+-+                        {
+-+                            t.HasCheckConstraint("CK_ChapterNumber", "number >= 0");
+-+                        });
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ChapterTranslation", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("ChapterId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("LanguageId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("ScanGroupId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("chapterTitle")
+-+                        .HasMaxLength(255)
+-+                        .HasColumnType("character varying(255)");
+-+
+-+                    b.Property<bool>("isOfficial")
+-+                        .HasColumnType("boolean");
+-+
+-+                    b.Property<DateTime>("uploadedAt")
+-+                        .HasColumnType("timestamp with time zone");
+-+
+-+                    b.Property<int>("viewCount")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("LanguageId");
+-+
+-+                    b.HasIndex("ScanGroupId");
+-+
+-+                    b.HasIndex("ChapterId", "ScanGroupId", "LanguageId")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("ChapterTranslations", t =>
+-+                        {
+-+                            t.HasCheckConstraint("CK_ChapterTranslation_ViewCount", "\"viewCount\" >= 0");
+-+                        });
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ContentRating", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("ContentRatings");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Demographic", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Demographics");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Genre", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Genres");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Language", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Languages");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ScanGroup", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<bool>("isActive")
+-+                        .HasColumnType("boolean");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.Property<string>("websiteUrl")
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("ScanGroups");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Status", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Statuses");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Theme", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasColumnType("text");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.ToTable("Themes");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.Property<int>("id")
+-+                        .ValueGeneratedOnAdd()
+-+                        .HasColumnType("integer");
+-+
+-+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("id"));
+-+
+-+                    b.Property<int>("ContentRatingId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("DemographicId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<int>("StatusId")
+-+                        .HasColumnType("integer");
+-+
+-+                    b.Property<string>("img")
+-+                        .IsRequired()
+-+                        .HasMaxLength(500)
+-+                        .HasColumnType("character varying(500)");
+-+
+-+                    b.Property<string>("name")
+-+                        .IsRequired()
+-+                        .HasMaxLength(255)
+-+                        .HasColumnType("character varying(255)");
+-+
+-+                    b.Property<DateTime>("publicationDate")
+-+                        .HasColumnType("timestamp with time zone");
+-+
+-+                    b.Property<string>("synopsis")
+-+                        .IsRequired()
+-+                        .HasMaxLength(5000)
+-+                        .HasColumnType("character varying(5000)");
+-+
+-+                    b.HasKey("id");
+-+
+-+                    b.HasIndex("ContentRatingId");
+-+
+-+                    b.HasIndex("DemographicId");
+-+
+-+                    b.HasIndex("StatusId");
+-+
+-+                    b.HasIndex("name")
+-+                        .IsUnique();
+-+
+-+                    b.ToTable("Titles");
+-+                });
+-+
+-+            modelBuilder.Entity("ArtistTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Artist", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Artistid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("AuthorTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Author", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Authorid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("GenreTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Genre", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Genreid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("ThemeTitle", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Theme", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Themeid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", null)
+-+                        .WithMany()
+-+                        .HasForeignKey("Titleid")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.AlternativeName", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Language", "Language")
+-+                        .WithMany()
+-+                        .HasForeignKey("LanguageId")
+-+                        .OnDelete(DeleteBehavior.Restrict)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Title", "Title")
+-+                        .WithMany("AlternativeNames")
+-+                        .HasForeignKey("TitleId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Language");
+-+
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Title", "Title")
+-+                        .WithMany("Chapters")
+-+                        .HasForeignKey("TitleId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ChapterTranslation", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.Chapter", "Chapter")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("ChapterId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Language", "Language")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("LanguageId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.ScanGroup", "ScanGroup")
+-+                        .WithMany("ChapterTranslation")
+-+                        .HasForeignKey("ScanGroupId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("Chapter");
+-+
+-+                    b.Navigation("Language");
+-+
+-+                    b.Navigation("ScanGroup");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.HasOne("back_end.Models.ContentRating", "ContentRating")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("ContentRatingId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Demographic", "Demographic")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("DemographicId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.HasOne("back_end.Models.Status", "Status")
+-+                        .WithMany("Title")
+-+                        .HasForeignKey("StatusId")
+-+                        .OnDelete(DeleteBehavior.Cascade)
+-+                        .IsRequired();
+-+
+-+                    b.Navigation("ContentRating");
+-+
+-+                    b.Navigation("Demographic");
+-+
+-+                    b.Navigation("Status");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Chapter", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ContentRating", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Demographic", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Language", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.ScanGroup", b =>
+-+                {
+-+                    b.Navigation("ChapterTranslation");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Status", b =>
+-+                {
+-+                    b.Navigation("Title");
+-+                });
+-+
+-+            modelBuilder.Entity("back_end.Models.Title", b =>
+-+                {
+-+                    b.Navigation("AlternativeNames");
+-+
+-+                    b.Navigation("Chapters");
+-+                });
+-+#pragma warning restore 612, 618
+-+        }
+-+    }
+-+}
+-diff --git a/back-end/back-end/Program.cs b/back-end/back-end/Program.cs
+-index 5d72cf6..35ea69c 100644
+---- a/back-end/back-end/Program.cs
+-+++ b/back-end/back-end/Program.cs
+-@@ -2,16 +2,16 @@
+- using back_end.Conventions;
+- using back_end.Data;
+- using back_end.Shared.Cache;
+--using back_end.Conventions;
+- using back_end.Shared.Settings;
+- using Microsoft.EntityFrameworkCore;
+- using StackExchange.Redis;
+-+using back_end.Database.Seeds;
+- 
+- namespace back_end
+- {
+-     public class Program
+-     {
+--        public static void Main(string[] args)
+-+        public static async Task Main(string[] args)
+-         {
+-             var builder = WebApplication.CreateBuilder(args);
+- 
+-@@ -51,7 +51,10 @@ namespace back_end
+-             {
+-                 options.AddPolicy("front-end",
+-                     builder => builder
+--                        .WithOrigins("http://localhost:5173")
+-+                        .WithOrigins(
+-+                            "http://localhost:5173",
+-+                            "https://frontend-online-manga.vercel.app"
+-+                            )
+-                         .AllowAnyMethod()
+-                         .AllowAnyHeader());
+-             });
+-@@ -59,12 +62,38 @@ namespace back_end
+-             //# App
+-             var app = builder.Build();
+- 
+--            // Configure the HTTP request pipeline.
+-             if (app.Environment.IsDevelopment())
+-             {
+-                 app.UseSwagger();
+-                 app.UseSwaggerUI();
+-             }
+-+            if (app.Environment.IsProduction())
+-+            {
+-+                using (IServiceScope scope = app.Services.CreateScope())
+-+                {
+-+                    AppDbContext db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+-+
+-+                    int retries = 10;
+-+                    while (retries > 0)
+-+                    {
+-+                        try
+-+                        {
+-+                            db.Database.Migrate();
+-+                            break;
+-+                        }
+-+                        catch (Exception ex)
+-+                        {
+-+                            retries--;
+-+                            Console.WriteLine($"Error applying migration, retrying... ({retries} attempts left): {ex.Message}");
+-+                            if (retries == 0) throw;
+-+                            await Task.Delay(3000);
+-+                        }
+-+                    }
+-+
+-+                    Seeder seeder = new Seeder(db);
+-+                    await seeder.Run(500);
+-+                }
+-+            }
+- 
+-             app.UseCors("front-end");
+-             app.UseHttpsRedirection();
+-diff --git a/back-end/back-end/appsettings.Development.json b/back-end/back-end/appsettings.Development.json
+-index 0c208ae..9752487 100644
+---- a/back-end/back-end/appsettings.Development.json
+-+++ b/back-end/back-end/appsettings.Development.json
+-@@ -4,5 +4,12 @@
+-       "Default": "Information",
+-       "Microsoft.AspNetCore": "Warning"
+-     }
+-+  },
+-+  "ConnectionStrings": {
+-+    "Redis": "redis:6379",
+-+    // Used to connect with the database at the terminal.
+-+    "Terminal": "Host=localhost;Port=5433;Database=OnlineManga;Username=root;Password=postgreSQL",
+-+    // Used to connect with the database in Docker (containers)
+-+    "Default": "Host=db;Port=5432;Database=OnlineManga;Username=root;Password=postgreSQL"
+-   }
+--}
+-+}
+-\ No newline at end of file
+-diff --git a/back-end/back-end/appsettings.Production.json b/back-end/back-end/appsettings.Production.json
+-new file mode 100644
+-index 0000000..282b6e8
+---- /dev/null
+-+++ b/back-end/back-end/appsettings.Production.json
+-@@ -0,0 +1,11 @@
+-+{
+-+    "Logging": {
+-+        "LogLevel": {
+-+            "Default": "Information",
+-+            "Microsoft.AspNetCore": "Warning"
+-+        }
+-+    },
+-+    "ConnectionStrings": {
+-+        "Redis": "redis:6379"
+-+    }
+-+}
+-\ No newline at end of file
+-diff --git a/back-end/back-end/appsettings.json b/back-end/back-end/appsettings.json
+-index 3b77090..8432bcf 100644
+---- a/back-end/back-end/appsettings.json
+-+++ b/back-end/back-end/appsettings.json
+-@@ -33,13 +33,5 @@
+-             "Microsoft.EntityFrameworkCore.Database.Command": "Warning"
+-         }
+-     },
+--    "AllowedHosts": "*",
+--    "ConnectionStrings": {
+--        // Used to connect with the redis.
+--        "Redis": "redis:6379",
+--        // Used to connect with the database at the terminal.
+--        "Terminal": "Host=localhost;Port=5433;Database=CatManga;Username=root;Password=postgreSQL",
+--        // Used to connect with the database in Docker (containers)
+--        "Default": "Host=db;Port=5432;Database=CatManga;Username=root;Password=postgreSQL"
+--    }
+-+    "AllowedHosts": "*"
+- }
+-diff --git a/back-end/docker-compose.override.yml b/back-end/docker-compose.override.yml
+-deleted file mode 100644
+-index 94f7ef9..0000000
+---- a/back-end/docker-compose.override.yml
+-+++ /dev/null
+-@@ -1,14 +0,0 @@
+--services:
+--  back-end:
+--    environment:
+--      - ASPNETCORE_ENVIRONMENT=Development
+--      - ASPNETCORE_HTTP_PORTS=8080
+--      - ASPNETCORE_HTTPS_PORTS=8081
+--    ports:
+--      - "8080:8080"
+--      - "8081:8081"
+--    volumes:
+--      - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
+--      - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
+--      - ${APPDATA}/ASP.NET/Https:/home/app/.aspnet/https:ro
+--      - ${APPDATA}/ASP.NET/Https:/root/.aspnet/https:ro
+-\ No newline at end of file
+-diff --git a/back-end/docker-compose.prod.yml b/back-end/docker-compose.prod.yml
+-new file mode 100644
+-index 0000000..b225e5a
+---- /dev/null
+-+++ b/back-end/docker-compose.prod.yml
+-@@ -0,0 +1,40 @@
+-+services:
+-+  back-end:
+-+    build:
+-+      context: back-end
+-+      dockerfile: Dockerfile
+-+    restart: always
+-+    environment:
+-+      - ASPNETCORE_ENVIRONMENT=Production
+-+      - ASPNETCORE_HTTP_PORTS=8080
+-+      - ConnectionStrings__Default=Host=db;Port=5432;Database=OnlineManga;Username=root;Password=${DB_PASSWORD}
+-+    ports:
+-+      - "8080:8080"
+-+    depends_on:
+-+      - db
+-+      - redis
+-+
+-+  db:
+-+    image: postgres:16
+-+    restart: always
+-+    environment:
+-+      POSTGRES_USER: root
+-+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+-+      POSTGRES_DB: OnlineManga
+-+    volumes:
+-+      - pgdata:/var/lib/postgresql/data
+-+    expose:
+-+      - "5432"
+-+
+-+  redis:
+-+    image: redis:latest
+-+    restart: always
+-+    volumes:
+-+      - redisdata:/data
+-+    command: ["redis-server", "--appendonly", "yes"]
+-+    expose:
+-+      - "6379"
+-+
+-+volumes:
+-+  pgdata:
+-+  redisdata:
+-\ No newline at end of file
+-diff --git a/diff.txt b/diff.txt
+-deleted file mode 100644
+-index d1503f4..0000000
+---- a/diff.txt
+-+++ /dev/null
+-@@ -1,558 +0,0 @@
+--diff --git a/.github/workflows/deploy.yml b/.github/workflows/deploy.yml
+--index 29b016c..5884f49 100644
+----- a/.github/workflows/deploy.yml
+--+++ b/.github/workflows/deploy.yml
+--@@ -7,6 +7,7 @@ on:
+-- jobs:
+--   deploy:
+--     runs-on: ubuntu-latest
+--+    permissions: {}
+--     steps:
+--       - name: Deploy via SSH
+--         uses: appleboy/ssh-action@v1.0.3
+--diff --git a/.gitignore b/.gitignore
+--index ff83828..a7d9fc3 100644
+----- a/.gitignore
+--+++ b/.gitignore
+--@@ -1,5 +1,4 @@
+-- ## RAIZ 
+---
+-- # VS Code / sistema
+-- .vscode/
+-- .vs/
+--@@ -13,28 +12,21 @@ Thumbs.db
+-- *.tmp
+-- *.temp
+-- 
+---## BACK-END 
+---back-end/bin/
+---back-end/obj/
+---back-end/back-end/bin/
+---back-end/back-end/obj/
+---back-end/back-end/Migrations/
+--+## BACK-END
+--+# Build
+--+back-end/**/bin/
+--+back-end/**/obj/
+-- 
+---# Arquivos de usuário específicos do VS
+---back-end/back-end/*.user
+---back-end/back-end/*.dbmdl
+---back-end/back-end/*.cache
+--+# Migrations (se geradas automaticamente)
+--+back-end/**/Migrations/
+-- 
+---## FRONT-END 
+---front-end/node_modules/
+---front-end/dist/
+---front-end/.vite/
+--+# Arquivos de usuário específicos do VS
+--+back-end/**/*.user
+--+back-end/**/*.dbmdl
+--+back-end/**/*.cache
+-- 
+-- # Logs
+-- front-end/npm-debug.log*
+-- front-end/yarn-debug.log*
+-- front-end/yarn-error.log*
+---front-end/pnpm-debug.log*
+---
+---
+---
+--+front-end/pnpm-debug.log*
+--\ No newline at end of file
+--diff --git a/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs b/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs
+--new file mode 100644
+--index 0000000..89203b0
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/Fixtures/BaseIntegrationTest.cs
+--@@ -0,0 +1,43 @@
+--+﻿using System.Text;
+--+using System.Text.Json;
+--+
+--+namespace back_end.Tests.Integration.Fixtures
+--+{
+--+    public abstract class BaseIntegrationTest : IAsyncLifetime
+--+    {
+--+        protected readonly CustomWebAppFactory Factory;
+--+        protected readonly HttpClient Client;
+--+
+--+        protected BaseIntegrationTest(CustomWebAppFactory factory)
+--+        {
+--+            Factory = factory;
+--+            Client = factory.Client;
+--+        }
+--+
+--+        public async Task InitializeAsync()
+--+        {
+--+            await Factory.ResetDatabaseAsync();
+--+            await SeedAsync();
+--+        }
+--+
+--+        protected async Task SeedAsync()
+--+        {
+--+            HttpResponseMessage? responseDelete = await Client.DeleteAsync("/Seeds");
+--+            responseDelete.EnsureSuccessStatusCode();
+--+
+--+            HttpResponseMessage? responseStatic = await Client.PostAsync("/Seeds/Static", null);
+--+            responseStatic.EnsureSuccessStatusCode();
+--+
+--+            StringContent body = new StringContent(
+--+                JsonSerializer.Serialize(100),
+--+                Encoding.UTF8,
+--+                "application/json"
+--+            );
+--+            HttpResponseMessage? responseSeed = await Client.PostAsync("/Seeds/Seed", body);
+--+            responseSeed.EnsureSuccessStatusCode();
+--+        }
+--+
+--+        public Task DisposeAsync() => Task.CompletedTask;
+--+    }
+--+}
+--+
+--diff --git a/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs b/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs
+--new file mode 100644
+--index 0000000..cb3f9b9
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/Fixtures/CustomWebAppFactory.cs
+--@@ -0,0 +1,110 @@
+--+﻿using Microsoft.AspNetCore.Hosting;
+--+using Microsoft.AspNetCore.Mvc.Testing;
+--+using Microsoft.EntityFrameworkCore;
+--+using Microsoft.Extensions.Configuration;
+--+using Microsoft.Extensions.DependencyInjection;
+--+using Npgsql;
+--+using Respawn;
+--+using StackExchange.Redis;
+--+using Testcontainers.PostgreSql;
+--+using Testcontainers.Redis;
+--+using back_end.Data;
+--+using Microsoft.AspNetCore.TestHost;
+--+
+--+namespace back_end.Tests.Integration.Fixtures
+--+{
+--+    public class CustomWebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
+--+    {
+--+        private readonly PostgreSqlContainer _postgresContainer = new PostgreSqlBuilder("postgres:16-alpine")
+--+            .WithDatabase("onlinemanga")
+--+            .WithUsername("testuser")
+--+            .WithPassword("testpassword")
+--+            .Build();
+--+
+--+        private readonly RedisContainer _redisContainer = new RedisBuilder("redis:7-alpine")
+--+            .Build();
+--+
+--+        private Respawner _respawner = default!;
+--+        private NpgsqlConnection _dbConnection = default!;
+--+
+--+        public HttpClient Client { get; private set; } = default!;
+--+        public string PostgresConnectionString => _postgresContainer.GetConnectionString();
+--+        public string RedisConnectionString => _redisContainer.GetConnectionString();
+--+
+--+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+--+        {
+--+            builder.UseEnvironment("Testing");
+--+
+--+            builder.ConfigureAppConfiguration((context, config) =>
+--+            {
+--+                config.AddInMemoryCollection(new Dictionary<string, string?>
+--+                {
+--+                    ["ConnectionStrings:Default"] = _postgresContainer.GetConnectionString(),
+--+                    ["ConnectionStrings:Redis"] = _redisContainer.GetConnectionString()
+--+                });
+--+            });
+--+
+--+            builder.ConfigureTestServices(services =>
+--+            {
+--+                ServiceDescriptor? dbDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
+--+                if (dbDescriptor is not null)
+--+                    services.Remove(dbDescriptor);
+--+                services.AddDbContext<AppDbContext>(options => options.UseNpgsql(_postgresContainer.GetConnectionString()));
+--+
+--+                ServiceDescriptor? redisDescriptor = services.SingleOrDefault(d => d.ServiceType == typeof(IConnectionMultiplexer));
+--+                if (redisDescriptor is not null)
+--+                    services.Remove(redisDescriptor);
+--+                services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(_redisContainer.GetConnectionString()));
+--+            });
+--+        }
+--+
+--+        private async Task ApplyMigrationsAsync()
+--+        {
+--+            using IServiceScope scope = Services.CreateScope();
+--+            AppDbContext? db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+--+            await db.Database.MigrateAsync();
+--+        }
+--+
+--+        public async Task InitializeAsync()
+--+        {
+--+            await Task.WhenAll(
+--+                _postgresContainer.StartAsync(),
+--+                _redisContainer.StartAsync()
+--+            );
+--+
+--+            await ApplyMigrationsAsync();
+--+
+--+            _dbConnection = new NpgsqlConnection(_postgresContainer.GetConnectionString());
+--+            await _dbConnection.OpenAsync();
+--+
+--+            _respawner = await Respawner.CreateAsync(_dbConnection, new RespawnerOptions
+--+            {
+--+                DbAdapter = DbAdapter.Postgres,
+--+                SchemasToInclude = ["public"],
+--+                TablesToIgnore = ["__EFMigrationsHistory"]
+--+            });
+--+
+--+            Client = CreateClient();
+--+        }
+--+
+--+        Task IAsyncLifetime.DisposeAsync()
+--+        {
+--+            return DisposeAsync().AsTask();
+--+        }
+--+        public override async ValueTask DisposeAsync()
+--+        {
+--+            if (_dbConnection is not null)
+--+                await _dbConnection.DisposeAsync();
+--+
+--+            await _postgresContainer.DisposeAsync();
+--+            await _redisContainer.DisposeAsync();
+--+
+--+            await base.DisposeAsync();
+--+        }
+--+
+--+        public async Task ResetDatabaseAsync()
+--+        {
+--+            await _respawner.ResetAsync(_dbConnection);
+--+        }
+--+    }
+--+}
+--\ No newline at end of file
+--diff --git a/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs b/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs
+--new file mode 100644
+--index 0000000..a36877f
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/Fixtures/IntegrationTestCollection.cs
+--@@ -0,0 +1,9 @@
+--+﻿namespace back_end.Tests.Integration.Fixtures
+--+{
+--+    [CollectionDefinition(IntegrationTestCollection.Name)]
+--+    public class IntegrationTestCollection : ICollectionFixture<CustomWebAppFactory>
+--+    {
+--+        public const string Name = "Integration Tests";
+--+    }
+--+}
+--+
+--diff --git a/back-end/back-end.Tests.Integration/Tests/Static.cs b/back-end/back-end.Tests.Integration/Tests/Static.cs
+--new file mode 100644
+--index 0000000..cf907dc
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/Tests/Static.cs
+--@@ -0,0 +1,25 @@
+--+﻿using System.Net;
+--+using System.Text.Json;
+--+using back_end.Tests.Integration.Fixtures;
+--+
+--+namespace back_end.Tests.Integration.Tests
+--+{
+--+    [Collection(IntegrationTestCollection.Name)]
+--+    public class Static : BaseIntegrationTest
+--+    {
+--+        public Static(CustomWebAppFactory factory) : base(factory) { }
+--+
+--+        [Fact]
+--+        public async Task GetDefault()
+--+        {
+--+            HttpResponseMessage response = await Client.GetAsync("/Static");
+--+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+--+
+--+            string body = await response.Content.ReadAsStringAsync();
+--+            Assert.False(string.IsNullOrWhiteSpace(body));
+--+
+--+            JsonElement json = JsonSerializer.Deserialize<JsonElement>(body);
+--+            Assert.True(json.EnumerateObject().Any());
+--+        }
+--+    }
+--+}
+--diff --git a/back-end/back-end.Tests.Integration/Tests/Title.cs b/back-end/back-end.Tests.Integration/Tests/Title.cs
+--new file mode 100644
+--index 0000000..34688fb
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/Tests/Title.cs
+--@@ -0,0 +1,88 @@
+--+﻿using System.Net;
+--+using System.Text.Json;
+--+using back_end.Tests.Integration.Fixtures;
+--+
+--+namespace back_end.Tests.Integration.Tests
+--+{
+--+    [Collection(IntegrationTestCollection.Name)]
+--+    public class Title : BaseIntegrationTest
+--+    {
+--+        public Title(CustomWebAppFactory factory) : base(factory) { }
+--+
+--+        [Fact]
+--+        public async Task GetDefault()
+--+        {
+--+            // With id
+--+            HttpResponseMessage responseId = await Client.GetAsync("/Title?id=1");
+--+            Assert.Equal(HttpStatusCode.OK, responseId.StatusCode);
+--+
+--+            // With limit
+--+            HttpResponseMessage responseLimit = await Client.GetAsync("/Title?limit=10");
+--+            Assert.Equal(HttpStatusCode.OK, responseLimit.StatusCode);
+--+
+--+            // Without parameters → 400
+--+            HttpResponseMessage responseNoParams = await Client.GetAsync("/Title");
+--+            Assert.Equal(HttpStatusCode.BadRequest, responseNoParams.StatusCode);
+--+
+--+            // With nonexistent id → 404
+--+            HttpResponseMessage responseNotFound = await Client.GetAsync("/Title?id=999999");
+--+            Assert.Equal(HttpStatusCode.NotFound, responseNotFound.StatusCode);
+--+
+--+            // Verify response body with id
+--+            string bodyId = await responseId.Content.ReadAsStringAsync();
+--+            List<DTOs.Title>? titlesById = JsonSerializer.Deserialize<List<DTOs.Title>>(bodyId, new JsonSerializerOptions
+--+            {
+--+                PropertyNameCaseInsensitive = true
+--+            });
+--+            Assert.NotNull(titlesById);
+--+
+--+            // Verify response body with limit
+--+            string bodyLimit = await responseLimit.Content.ReadAsStringAsync();
+--+            List<DTOs.Title>? titlesByLimit = JsonSerializer.Deserialize<List<DTOs.Title>>(bodyLimit, new JsonSerializerOptions
+--+            {
+--+                PropertyNameCaseInsensitive = true
+--+            });
+--+            Assert.NotNull(titlesByLimit);
+--+        }
+--+        [Fact]
+--+        public async Task GetSearch()
+--+        {
+--+            // No filters
+--+            HttpResponseMessage noFilters = await Client.GetAsync("/Title/search");
+--+            Assert.Equal(HttpStatusCode.OK, noFilters.StatusCode);
+--+
+--+            // With name
+--+            HttpResponseMessage withName = await Client.GetAsync("/Title/search?name=naruto");
+--+            Assert.Equal(HttpStatusCode.OK, withName.StatusCode);
+--+
+--+            // With genresIds
+--+            HttpResponseMessage withGenres = await Client.GetAsync("/Title/search?genresIds=1&genresIds=2");
+--+            Assert.Equal(HttpStatusCode.OK, withGenres.StatusCode);
+--+
+--+            // With excludeGenresIds
+--+            HttpResponseMessage withExcludeGenres = await Client.GetAsync("/Title/search?excludeGenresIds=1&excludeGenresIds=2");
+--+            Assert.Equal(HttpStatusCode.OK, withExcludeGenres.StatusCode);
+--+
+--+            // Conflict genre include + exclude same id → 500
+--+            HttpResponseMessage genreConflict = await Client.GetAsync("/Title/search?genresIds=1&excludeGenresIds=1");
+--+            Assert.Equal(HttpStatusCode.InternalServerError, genreConflict.StatusCode);
+--+
+--+            // Conflict theme include + exclude same id → 500
+--+            HttpResponseMessage themeConflict = await Client.GetAsync("/Title/search?themesIds=2&excludeThemesIds=2");
+--+            Assert.Equal(HttpStatusCode.InternalServerError, themeConflict.StatusCode);
+--+
+--+            // Multiple filters combined
+--+            HttpResponseMessage multipleFilters = await Client.GetAsync("/Title/search?name=one&genresIds=1&statusIds=2&publicationYear=2000");
+--+            Assert.Equal(HttpStatusCode.OK, multipleFilters.StatusCode);
+--+
+--+            // Verify response body
+--+            string body = await withName.Content.ReadAsStringAsync();
+--+            List<DTOs.Title>? titles = JsonSerializer.Deserialize<List<DTOs.Title>>(body, new JsonSerializerOptions
+--+            {
+--+                PropertyNameCaseInsensitive = true
+--+            });
+--+            Assert.NotNull(titles);
+--+        }
+--+    }
+--+}
+--+
+--diff --git a/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj b/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj
+--new file mode 100644
+--index 0000000..cd3bad2
+----- /dev/null
+--+++ b/back-end/back-end.Tests.Integration/back-end.Tests.Integration.csproj
+--@@ -0,0 +1,33 @@
+--+﻿<Project Sdk="Microsoft.NET.Sdk">
+--+
+--+	<PropertyGroup>
+--+		<TargetFramework>net8.0</TargetFramework>
+--+		<RootNamespace>back_end.Tests.Integration</RootNamespace>
+--+		<ImplicitUsings>enable</ImplicitUsings>
+--+		<Nullable>enable</Nullable>
+--+		<IsPackable>false</IsPackable>
+--+	</PropertyGroup>
+--+
+--+	<ItemGroup>
+--+		<PackageReference Include="coverlet.collector" Version="6.0.2" />
+--+		<PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.11" />
+--+		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+--+		<PackageReference Include="Respawn" Version="7.0.0" />
+--+		<PackageReference Include="StackExchange.Redis" Version="3.0.7" />
+--+		<PackageReference Include="Testcontainers.PostgreSql" Version="4.12.0" />
+--+		<PackageReference Include="Testcontainers.Redis" Version="4.12.0" />
+--+		<PackageReference Include="xunit" Version="2.9.2" />
+--+		<PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+--+
+--+		<PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.6" />
+--+		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+--+	</ItemGroup>
+--+
+--+	<ItemGroup>
+--+		<Using Include="Xunit" />
+--+	</ItemGroup>
+--+
+--+	<ItemGroup>
+--+		<ProjectReference Include="..\back-end\back-end.csproj" />
+--+	</ItemGroup>
+--+</Project>
+--diff --git a/back-end/back-end.sln b/back-end/back-end.sln
+--index 9d80e4a..e74aea7 100644
+----- a/back-end/back-end.sln
+--+++ b/back-end/back-end.sln
+--@@ -7,20 +7,50 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "back-end", "back-end\back-e
+-- EndProject
+-- Project("{E53339B2-1760-4266-BCC7-CA923CBCF16C}") = "docker-compose", "docker-compose.dcproj", "{81DDED9D-158B-E303-5F62-77A2896D2A5A}"
+-- EndProject
+--+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "back-end.Tests.Integration", "back-end.Tests.Integration\back-end.Tests.Integration.csproj", "{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}"
+--+EndProject
+-- Global
+-- 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+-- 		Debug|Any CPU = Debug|Any CPU
+--+		Debug|x64 = Debug|x64
+--+		Debug|x86 = Debug|x86
+-- 		Release|Any CPU = Release|Any CPU
+--+		Release|x64 = Release|x64
+--+		Release|x86 = Release|x86
+-- 	EndGlobalSection
+-- 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+-- 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+-- 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x64.ActiveCfg = Debug|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x64.Build.0 = Debug|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x86.ActiveCfg = Debug|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Debug|x86.Build.0 = Debug|Any CPU
+-- 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+-- 		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|Any CPU.Build.0 = Release|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x64.ActiveCfg = Release|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x64.Build.0 = Release|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x86.ActiveCfg = Release|Any CPU
+--+		{D615EFD0-D66E-460E-BB3C-DFCEE92689A2}.Release|x86.Build.0 = Release|Any CPU
+-- 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+-- 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+--+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|x64.ActiveCfg = Debug|x64
+--+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Debug|x86.ActiveCfg = Debug|x86
+-- 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+-- 		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|Any CPU.Build.0 = Release|Any CPU
+--+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|x64.ActiveCfg = Release|x64
+--+		{81DDED9D-158B-E303-5F62-77A2896D2A5A}.Release|x86.ActiveCfg = Release|x86
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x64.ActiveCfg = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x64.Build.0 = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x86.ActiveCfg = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Debug|x86.Build.0 = Debug|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|Any CPU.Build.0 = Release|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x64.ActiveCfg = Release|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x64.Build.0 = Release|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x86.ActiveCfg = Release|Any CPU
+--+		{BA5B8E4E-3307-4BB1-801D-08B0F833ACB3}.Release|x86.Build.0 = Release|Any CPU
+-- 	EndGlobalSection
+-- 	GlobalSection(SolutionProperties) = preSolution
+-- 		HideSolutionNode = FALSE
+--diff --git a/back-end/back-end/Conventions/RemoveControllerConvention.cs b/back-end/back-end/Conventions/RemoveControllerConvention.cs
+--new file mode 100644
+--index 0000000..5e976e9
+----- /dev/null
+--+++ b/back-end/back-end/Conventions/RemoveControllerConvention.cs
+--@@ -0,0 +1,23 @@
+--+﻿using Microsoft.AspNetCore.Mvc.ApplicationModels;
+--+
+--+namespace back_end.Conventions
+--+{
+--+    public class RemoveControllerConvention : IApplicationModelConvention
+--+    {
+--+        private readonly string _controllerName;
+--+
+--+        public RemoveControllerConvention(string controllerName)
+--+        {
+--+            _controllerName = controllerName;
+--+        }
+--+
+--+        public void Apply(ApplicationModel app)
+--+        {
+--+            ControllerModel? controller = app.Controllers
+--+                .FirstOrDefault(c => c.ControllerName == _controllerName);
+--+
+--+            if (controller != null)
+--+                app.Controllers.Remove(controller);
+--+        }
+--+    }
+--+}
+--\ No newline at end of file
+--diff --git a/back-end/back-end/Program.cs b/back-end/back-end/Program.cs
+--index e2f67cb..5d72cf6 100644
+----- a/back-end/back-end/Program.cs
+--+++ b/back-end/back-end/Program.cs
+--@@ -1,6 +1,8 @@
+-- 
+--+using back_end.Conventions;
+-- using back_end.Data;
+-- using back_end.Shared.Cache;
+--+using back_end.Conventions;
+-- using back_end.Shared.Settings;
+-- using Microsoft.EntityFrameworkCore;
+-- using StackExchange.Redis;
+--@@ -14,7 +16,11 @@ namespace back_end
+--             var builder = WebApplication.CreateBuilder(args);
+-- 
+--             //# Services
+---            builder.Services.AddControllers();
+--+            builder.Services.AddControllers(options =>
+--+            {
+--+                if (builder.Environment.IsProduction())
+--+                    options.Conventions.Add(new RemoveControllerConvention("Seeds"));
+--+            });
+--             builder.Services.AddEndpointsApiExplorer();
+--             builder.Services.AddSwaggerGen();
+-- 
+--@@ -34,7 +40,11 @@ namespace back_end
+--             builder.Services.Configure<ValidationSettings>(builder.Configuration.GetSection("Database:Tables:Validation"));
+-- 
+--             builder.Services.AddSingleton<CacheHandler>();
+---            builder.Services.AddSingleton<IConnectionMultiplexer>(ConnectionMultiplexer.Connect("redis:6379"));
+--+            builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+--+            {
+--+                string? connectionstring = builder.Configuration.GetConnectionString("Redis");
+--+                return ConnectionMultiplexer.Connect(connectionstring!);
+--+            });
+-- 
+--             //? Cors
+--             builder.Services.AddCors(options =>
+--diff --git a/back-end/back-end/appsettings.json b/back-end/back-end/appsettings.json
+--index d74c124..3b77090 100644
+----- a/back-end/back-end/appsettings.json
+--+++ b/back-end/back-end/appsettings.json
+--@@ -35,6 +35,8 @@
+--     },
+--     "AllowedHosts": "*",
+--     "ConnectionStrings": {
+--+        // Used to connect with the redis.
+--+        "Redis": "redis:6379",
+--         // Used to connect with the database at the terminal.
+--         "Terminal": "Host=localhost;Port=5433;Database=CatManga;Username=root;Password=postgreSQL",
+--         // Used to connect with the database in Docker (containers)
+--diff --git a/back-end/back-end/back-end.csproj b/back-end/back-end/back-end.csproj
+--index ea0f831..bb0432e 100644
+----- a/back-end/back-end/back-end.csproj
+--+++ b/back-end/back-end/back-end.csproj
+--@@ -6,6 +6,8 @@
+--     <ImplicitUsings>enable</ImplicitUsings>
+--     <RootNamespace>back_end</RootNamespace>
+--     <UserSecretsId>f7bb8a85-7cc0-4c09-9786-c986fd012751</UserSecretsId>
+--+    <AnalysisLevel>latest</AnalysisLevel>
+--+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+--     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+--     <DockerfileContext>.</DockerfileContext>
+--     <DockerComposeProjectPath>..\docker-compose.dcproj</DockerComposeProjectPath>

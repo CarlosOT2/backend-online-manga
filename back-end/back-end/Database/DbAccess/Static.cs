@@ -51,6 +51,10 @@ namespace back_end.Database.DbAccess
                     contentRatings = await _context.ContentRatings
                 .Select(c => new StaticItemDTO { id = c.id, name = c.name })
                 .ToListAsync(),
+
+                    languages = await _context.Languages
+                .Select(l => new StaticItemDTO { id = l.id, name = l.name })
+                .ToListAsync()
                 };
 
                 await _cache.SetAsync(_settings.Static.key, StaticData);

@@ -48,6 +48,50 @@ namespace back_end.Database.Seeds
             _context.Chapters.AddRange(chapters);
             await _context.SaveChangesAsync();
         }
+        private async Task SeedChapterTranslations()
+        {
+            Random random = Random.Shared;
+            List<Models.Chapter> chapters = await _context.Chapters.ToListAsync();
+            List<Models.ScanGroup> scanGroups = await _context.ScanGroups.ToListAsync();
+            List<Models.Language> languages = await _context.Languages.ToListAsync();
+
+            List<Models.ChapterTranslation> translations = new List<Models.ChapterTranslation>();
+            int id = 1;
+
+            DateTime startDate = new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            int totalDays = (DateTime.UtcNow - startDate).Days;
+
+            foreach (Models.Chapter chapter in chapters)
+            {
+                int qntTranslactions = random.Next(1, 5);
+                HashSet<(int scanGroupId, int languageId)> usedCombinations = new();
+
+                int attempts = 0;
+                while (usedCombinations.Count < qntTranslactions && attempts < 50)
+                {
+                    attempts++;
+                    int scanGroupId = scanGroups[random.Next(scanGroups.Count)].id;
+                    int languageId = languages[random.Next(languages.Count)].id;
+
+                    if (!usedCombinations.Add((scanGroupId, languageId)))
+                        continue; 
+
+                    translations.Add(new Models.ChapterTranslation
+                    {
+                        id = id++,
+                        chapterTitle = "Test",
+                        ChapterId = chapter.id,
+                        ScanGroupId = scanGroupId,
+                        LanguageId = languageId,
+                        uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400)),
+                        viewCount = random.Next(0, 10000)
+                    });
+                }
+            }
+
+            _context.ChapterTranslations.AddRange(translations);
+            await _context.SaveChangesAsync();
+        }
 
         public async Task Run(int rows)
         {
@@ -73,7 +117,7 @@ namespace back_end.Database.Seeds
             await _DbSeeds.Run<Models.AlternativeName>("AlternativeNames", rows, new Models.AlternativeName { name = "Alternative Name" });
             await _DbSeeds.Run<Models.ScanGroup>("ScanGroups", rows, new Models.ScanGroup { name = "ScanGroup", websiteUrl = "teste" });
             await SeedChapters();
-            await _DbSeeds.Run<Models.ChapterTranslation>("ChapterTranslations", rows, new Models.ChapterTranslation { chapterTitle = "Teste" });
+            await SeedChapterTranslations();
         }
     }
 }

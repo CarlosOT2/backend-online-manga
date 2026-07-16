@@ -30,7 +30,7 @@ namespace back_end.Controllers
         }
 
         [HttpPost("Seed")]
-        public async Task<IActionResult> Seed([FromBody] int rows = 500)
+        public async Task<IActionResult> Seed([FromBody] int rows = 200)
         {
             await _seeder.Run(rows);
             return Ok("Seed executed");

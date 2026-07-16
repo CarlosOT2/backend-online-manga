@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using back_end.Data;
@@ -11,9 +12,11 @@ using back_end.Data;
 namespace back_end.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260716012333_Migration123")]
+    partial class Migration123
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -93,9 +96,6 @@ namespace back_end.Migrations
                     b.Property<int>("LanguageId")
                         .HasColumnType("integer");
 
-                    b.Property<int?>("Languageid")
-                        .HasColumnType("integer");
-
                     b.Property<int>("TitleId")
                         .HasColumnType("integer");
 
@@ -107,8 +107,6 @@ namespace back_end.Migrations
                     b.HasKey("id");
 
                     b.HasIndex("LanguageId");
-
-                    b.HasIndex("Languageid");
 
                     b.HasIndex("TitleId");
 
@@ -458,10 +456,6 @@ namespace back_end.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("back_end.Models.Language", null)
-                        .WithMany("AlternativeNames")
-                        .HasForeignKey("Languageid");
-
                     b.HasOne("back_end.Models.Title", "Title")
                         .WithMany("AlternativeNames")
                         .HasForeignKey("TitleId")
@@ -555,8 +549,6 @@ namespace back_end.Migrations
 
             modelBuilder.Entity("back_end.Models.Language", b =>
                 {
-                    b.Navigation("AlternativeNames");
-
                     b.Navigation("ChapterTranslation");
                 });
 

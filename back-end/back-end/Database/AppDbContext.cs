@@ -70,11 +70,10 @@ namespace back_end.Data
                 e.Property(e => e.name).IsRequired().HasMaxLength(_validation.AlternativeName.ValueMaxLength);
                 // Prevent cascading delete: deleting a Language should not remove AlternativeNames
                 e.HasOne(e => e.Language)
-                      .WithMany()
-                      .HasForeignKey(e => e.LanguageId)
-                      .OnDelete(DeleteBehavior.Restrict);
+                   .WithMany()
+                   .HasForeignKey(a => a.LanguageId)
+                   .OnDelete(DeleteBehavior.Restrict);
             });
-
         }
 
 

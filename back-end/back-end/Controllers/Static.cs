@@ -40,7 +40,6 @@ namespace back_end.Controllers
             if (clientEtag != null && clientEtag == etag)
                 return StatusCode(StatusCodes.Status304NotModified);
 
-            
             _cache.SetHttpHeaders(Response, result.Value!, _settings.Static.maxage);
 
             return Ok(result.Value);

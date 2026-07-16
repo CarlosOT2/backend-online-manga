@@ -4,7 +4,6 @@
     {
         public int id { get; set; }
         public string? chapterTitle { get; set; }
-        public bool isOfficial { get; set; } = false;
         public DateTime uploadedAt { get; set; } = DateTime.UtcNow;
         public int viewCount { get; set; } = 0;
 

@@ -16,7 +16,10 @@ namespace back_end.Database.DbAccess
             _context = context;
         }
 
-        private IQueryable<DTOs.Title> BuildQuery()
+        private IQueryable<DTOs.Title> BuildQuery(
+            bool includeChapters = false,
+            bool includeAlternativeNames = false
+            )
         {
             return _context.Titles
             .AsNoTracking()
@@ -38,16 +41,29 @@ namespace back_end.Database.DbAccess
                 genres = t.Genre.Select(g => g.id),
                 themes = t.Theme.Select(th => th.id),
 
-                alternativenames = t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
+                alternativenames = includeAlternativeNames
+                ? t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
-                }),
-                chapters = t.Chapters.Select(c => new DTOs.Title.ChaptersDTO
+                })
+                : null,
+                chapters = includeChapters
+                ? t.Chapters.Select(c => new DTOs.Title.ChaptersDTO
                 {
                     id = c.id,
-                    number = c.number
+                    number = c.number,
+                    translations = c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
+                    {
+                        id = ct.id,
+                        chapterTitle = ct.chapterTitle,
+                        uploadedAt = ct.uploadedAt,
+                        viewCount = ct.viewCount,
+                        ScanGroupName = ct.ScanGroup.name,
+                        LanguageId = ct.LanguageId
+                    })
                 })
+                : null
             });
         }
 
@@ -75,7 +91,7 @@ namespace back_end.Database.DbAccess
         {
             try
             {
-                IQueryable<DTOs.Title> query = BuildQuery();
+                IQueryable<DTOs.Title> query = BuildQuery(true, true);
                 query = query.Where(t => t.id == id);
                 List<DTOs.Title> title = await RunQuery(query);
 

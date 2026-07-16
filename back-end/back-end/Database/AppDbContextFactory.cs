@@ -11,15 +11,20 @@ namespace back_end.Data
         {
             var configuration = new ConfigurationBuilder()
                 .SetBasePath(Directory.GetCurrentDirectory())
-                .AddJsonFile("appsettings.json")
+                .AddJsonFile("appsettings.json", optional: false)
+                .AddJsonFile("appsettings.Development.json")
                 .Build();
 
+            var connectionString = configuration.GetConnectionString("Terminal")
+                ?? throw new InvalidOperationException("Connection string 'Terminal' not found.");
+
             var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-            optionsBuilder.UseNpgsql(configuration.GetConnectionString("Terminal"));
+            optionsBuilder.UseNpgsql(connectionString);
 
             var validationSettings = configuration
                 .GetSection("Database:Tables:Validation")
-                .Get<ValidationSettings>();
+                .Get<ValidationSettings>()
+                ?? throw new InvalidOperationException("Seção 'Database:Tables:Validation' não encontrada no appsettings.json.");
 
             return new AppDbContext(optionsBuilder.Options, Options.Create(validationSettings!));
         }
