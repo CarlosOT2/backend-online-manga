@@ -1,7 +1,5 @@
 ﻿namespace back_end.DTOs
 {
-    
-
     public class Title
     {
         public class AlternativeNameDTO
@@ -13,6 +11,7 @@
         {
             public int id { get; set; }
             public decimal number { get; set; }
+            public DateTime UpdatedAt { get; set; }
             public IEnumerable<ChapterTranslationDTO>? translations { get; set; } = new List<ChapterTranslationDTO>();
         }
         public class ChapterTranslationDTO
@@ -29,8 +28,10 @@
         public int id { get; set; }
         public string name { get; set; } = string.Empty;
         public string synopsis { get; set; } = string.Empty;
-        public DateTime publicationDate { get; set; } = DateTime.MinValue;
+        public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
         public string img { get; set; } = string.Empty;
+
+        public DateTime CreatedAt { get; set; } = DateTime.MinValue;
 
         public int Status { get; set; } = -1;
         public int ContentRating { get; set; } = -1;

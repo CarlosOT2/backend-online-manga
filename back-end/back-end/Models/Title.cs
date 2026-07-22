@@ -5,8 +5,10 @@
         public int id { get; set; }
         public string name { get; set; } = string.Empty;
         public string synopsis { get; set; } = string.Empty;
-        public DateTime publicationDate { get; set; } = DateTime.MinValue;
+        public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
         public string img { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }          
+
 
         public ICollection<Models.Author> Author { get; set; } = new List<Models.Author>();
         public ICollection<Models.Artist> Artist { get; set; } = new List<Models.Artist>();

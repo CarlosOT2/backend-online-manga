@@ -40,9 +40,6 @@ namespace back_end.Tests.Integration.Tests
             // Exceeding max limit → 500
             HttpResponseMessage responseExceedLimit = await Client.GetAsync("/Title/latestupdates?limit=101");
             Assert.Equal(HttpStatusCode.InternalServerError, responseExceedLimit.StatusCode);
-            // With compact=false
-            HttpResponseMessage responseNotCompact = await Client.GetAsync("/Title/latestupdates?limit=10&compact=false");
-            Assert.Equal(HttpStatusCode.OK, responseNotCompact.StatusCode);
             // Verify response body
             string body = await responseLimit.Content.ReadAsStringAsync();
             List<DTOs.Title>? titles = JsonSerializer.Deserialize<List<DTOs.Title>>(body, new JsonSerializerOptions

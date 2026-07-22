@@ -65,6 +65,7 @@ namespace back_end.Database.Seeds
             {
                 int qntTranslactions = random.Next(1, 5);
                 HashSet<(int scanGroupId, int languageId)> usedCombinations = new();
+                DateTime latestUploadForChapter = DateTime.MinValue;
 
                 int attempts = 0;
                 while (usedCombinations.Count < qntTranslactions && attempts < 50)
@@ -74,7 +75,9 @@ namespace back_end.Database.Seeds
                     int languageId = languages[random.Next(languages.Count)].id;
 
                     if (!usedCombinations.Add((scanGroupId, languageId)))
-                        continue; 
+                        continue;
+
+                    DateTime uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400));
 
                     translations.Add(new Models.ChapterTranslation
                     {
@@ -83,10 +86,15 @@ namespace back_end.Database.Seeds
                         ChapterId = chapter.id,
                         ScanGroupId = scanGroupId,
                         LanguageId = languageId,
-                        uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400)),
+                        uploadedAt = uploadedAt,
                         viewCount = random.Next(0, 10000)
                     });
+
+                    if (uploadedAt > latestUploadForChapter)
+                        latestUploadForChapter = uploadedAt;
                 }
+
+                chapter.UpdatedAt = latestUploadForChapter;
             }
 
             _context.ChapterTranslations.AddRange(translations);
@@ -109,8 +117,10 @@ namespace back_end.Database.Seeds
                 "anyone his age and even older. Thus begins the chronicles of Rudeus Greyrat, son of swordsman Paul and healer Zenith, as he enters a new world to " +
                 "become the strongest mage known to man, with powers rivaling even the gods themselves.",
                 // this prop will generate random dates starting from this date
-                publicationDate = new DateTime(2000, 1, 1, 0, 0, 0),
+                publicationDate = new DateOnly(1950, 1, 1),
                 img = "image",
+                // this prop will generate random dates starting from this date
+                CreatedAt = new DateTime(2000, 1, 1, 0, 0, 0),
             });
             await _DbSeeds.Run<Models.Artist>("Artists", rows, new Models.Artist { name = "Artist" });
             await _DbSeeds.Run<Models.Author>("Authors", rows, new Models.Author { name = "Author" });

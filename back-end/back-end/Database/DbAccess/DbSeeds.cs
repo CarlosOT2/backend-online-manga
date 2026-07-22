@@ -118,7 +118,7 @@ namespace back_end.Database.DbAccess
                         if (!type.IsValueType && type != typeof(string) && !type.IsGenericType)
                             continue;
 
-                        if (type == typeof(string) || type == typeof(DateTime))
+                        if (type == typeof(string) || type == typeof(DateTime) || type == typeof(DateOnly))
                         {
                             object? value = prop.GetValue(baseObj);
                             if (value != null)
@@ -137,6 +137,15 @@ namespace back_end.Database.DbAccess
                                     double randomSeconds = random.NextDouble() * intervalo.TotalSeconds;
                                     DateTime randomDate = dtValue.AddSeconds(randomSeconds);
 
+                                    prop.SetValue(item, randomDate);
+                                }
+                                else if (value is DateOnly doValue)
+                                {
+                                    DateOnly currentDate = DateOnly.FromDateTime(DateTime.Now);
+                                    Random random = new Random();
+                                    int intervaloDias = currentDate.DayNumber - doValue.DayNumber;
+                                    int randomDays = intervaloDias > 0 ? random.Next(0, intervaloDias) : 0;
+                                    DateOnly randomDate = doValue.AddDays(randomDays);
                                     prop.SetValue(item, randomDate);
                                 }
                             }

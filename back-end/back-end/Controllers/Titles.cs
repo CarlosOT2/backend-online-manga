@@ -39,14 +39,14 @@ namespace back_end.Controllers
             return Ok(result.Value);
         }
         [HttpGet("latestupdates")]
-        public async Task<ActionResult<List<DTOs.Title>>> GetTitleLatestUpdates([FromQuery] int? limit, [FromQuery] bool compact = true)
+        public async Task<ActionResult<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates([FromQuery] int? limit)
         {
             //? Verifications
             if (!limit.HasValue)
                 return BadRequest("You must provide a limit");
 
             //? Variables
-            Result<List<DTOs.Title>> result = await _dbAccess.GetTitleLatestUpdates(limit.Value, compact);
+            Result<List<DTOs.ChapterLatestUpdates>> result = await _dbAccess.GetTitleLatestUpdates(limit.Value);
 
             if (result.IsFailure)
                 return StatusCode(500, "Server Failure");

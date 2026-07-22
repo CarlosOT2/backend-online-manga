@@ -1,0 +1,412 @@
+diff --git a/back-end/back-end.Tests.Integration/Tests/Title.cs b/back-end/back-end.Tests.Integration/Tests/Title.cs
+index 56bf967..be05947 100644
+--- a/back-end/back-end.Tests.Integration/Tests/Title.cs
++++ b/back-end/back-end.Tests.Integration/Tests/Title.cs
+@@ -40,9 +40,6 @@ namespace back_end.Tests.Integration.Tests
+             // Exceeding max limit → 500
+             HttpResponseMessage responseExceedLimit = await Client.GetAsync("/Title/latestupdates?limit=101");
+             Assert.Equal(HttpStatusCode.InternalServerError, responseExceedLimit.StatusCode);
+-            // With compact=false
+-            HttpResponseMessage responseNotCompact = await Client.GetAsync("/Title/latestupdates?limit=10&compact=false");
+-            Assert.Equal(HttpStatusCode.OK, responseNotCompact.StatusCode);
+             // Verify response body
+             string body = await responseLimit.Content.ReadAsStringAsync();
+             List<DTOs.Title>? titles = JsonSerializer.Deserialize<List<DTOs.Title>>(body, new JsonSerializerOptions
+diff --git a/back-end/back-end/Controllers/Titles.cs b/back-end/back-end/Controllers/Titles.cs
+index d172dbc..a8db369 100644
+--- a/back-end/back-end/Controllers/Titles.cs
++++ b/back-end/back-end/Controllers/Titles.cs
+@@ -39,14 +39,14 @@ namespace back_end.Controllers
+             return Ok(result.Value);
+         }
+         [HttpGet("latestupdates")]
+-        public async Task<ActionResult<List<DTOs.Title>>> GetTitleLatestUpdates([FromQuery] int? limit, [FromQuery] bool compact = true)
++        public async Task<ActionResult<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates([FromQuery] int? limit)
+         {
+             //? Verifications
+             if (!limit.HasValue)
+                 return BadRequest("You must provide a limit");
+ 
+             //? Variables
+-            Result<List<DTOs.Title>> result = await _dbAccess.GetTitleLatestUpdates(limit.Value, compact);
++            Result<List<DTOs.ChapterLatestUpdates>> result = await _dbAccess.GetTitleLatestUpdates(limit.Value);
+ 
+             if (result.IsFailure)
+                 return StatusCode(500, "Server Failure");
+diff --git a/back-end/back-end/DTOs/Title.cs b/back-end/back-end/DTOs/Title.cs
+index de82fd0..c24c2a1 100644
+--- a/back-end/back-end/DTOs/Title.cs
++++ b/back-end/back-end/DTOs/Title.cs
+@@ -1,7 +1,5 @@
+ ﻿namespace back_end.DTOs
+ {
+-    
+-
+     public class Title
+     {
+         public class AlternativeNameDTO
+@@ -13,6 +11,7 @@
+         {
+             public int id { get; set; }
+             public decimal number { get; set; }
++            public DateTime UpdatedAt { get; set; }
+             public IEnumerable<ChapterTranslationDTO>? translations { get; set; } = new List<ChapterTranslationDTO>();
+         }
+         public class ChapterTranslationDTO
+@@ -29,9 +28,11 @@
+         public int id { get; set; }
+         public string name { get; set; } = string.Empty;
+         public string synopsis { get; set; } = string.Empty;
+-        public DateTime publicationDate { get; set; } = DateTime.MinValue;
++        public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
+         public string img { get; set; } = string.Empty;
+ 
++        public DateTime CreatedAt { get; set; } = DateTime.MinValue;
++
+         public int Status { get; set; } = -1;
+         public int ContentRating { get; set; } = -1;
+         public int Demographic { get; set; } = -1;
+diff --git a/back-end/back-end/Database/DbAccess/DbSeeds.cs b/back-end/back-end/Database/DbAccess/DbSeeds.cs
+index 86bfdb4..b39d8ce 100644
+--- a/back-end/back-end/Database/DbAccess/DbSeeds.cs
++++ b/back-end/back-end/Database/DbAccess/DbSeeds.cs
+@@ -118,7 +118,7 @@ namespace back_end.Database.DbAccess
+                         if (!type.IsValueType && type != typeof(string) && !type.IsGenericType)
+                             continue;
+ 
+-                        if (type == typeof(string) || type == typeof(DateTime))
++                        if (type == typeof(string) || type == typeof(DateTime) || type == typeof(DateOnly))
+                         {
+                             object? value = prop.GetValue(baseObj);
+                             if (value != null)
+@@ -139,6 +139,15 @@ namespace back_end.Database.DbAccess
+ 
+                                     prop.SetValue(item, randomDate);
+                                 }
++                                else if (value is DateOnly doValue)
++                                {
++                                    DateOnly currentDate = DateOnly.FromDateTime(DateTime.Now);
++                                    Random random = new Random();
++                                    int intervaloDias = currentDate.DayNumber - doValue.DayNumber;
++                                    int randomDays = intervaloDias > 0 ? random.Next(0, intervaloDias) : 0;
++                                    DateOnly randomDate = doValue.AddDays(randomDays);
++                                    prop.SetValue(item, randomDate);
++                                }
+                             }
+                             else
+                             {
+diff --git a/back-end/back-end/Database/DbAccess/Interfaces/ITitle.cs b/back-end/back-end/Database/DbAccess/Interfaces/ITitle.cs
+index 3447589..3a5f5d1 100644
+--- a/back-end/back-end/Database/DbAccess/Interfaces/ITitle.cs
++++ b/back-end/back-end/Database/DbAccess/Interfaces/ITitle.cs
+@@ -1,12 +1,11 @@
+-﻿using back_end.DTOs;
+-using back_end.Shared.Core;
++﻿using back_end.Shared.Core;
+ 
+ namespace back_end.Database.DbAccess.Interfaces
+ {
+     public interface ITitle
+     {
+         Task<Result<List<DTOs.Title>>> GetTitleById(int id);
+-        Task<Result<List<DTOs.Title>>> GetTitleLatestUpdates(int limit, bool compact);
++        Task<Result<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates(int limit);
+         Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact);
+         Task<Result<List<DTOs.Title>>> GetFeaturedTitles(int limit);
+         Task<Result<List<DTOs.Title>>> GetTitlesByFilters(
+diff --git a/back-end/back-end/Database/DbAccess/Title.cs b/back-end/back-end/Database/DbAccess/Title.cs
+index 91fbee5..666446b 100644
+--- a/back-end/back-end/Database/DbAccess/Title.cs
++++ b/back-end/back-end/Database/DbAccess/Title.cs
+@@ -5,6 +5,7 @@ using back_end.Shared.Core;
+ using back_end.Models;
+ using System.Diagnostics;
+ using System.Collections.Generic;
++using Microsoft.Extensions.Options;
+ 
+ namespace back_end.Database.DbAccess
+ {
+@@ -25,6 +26,7 @@ namespace back_end.Database.DbAccess
+             public bool IncludeThemes { get; set; } = false;
+             public bool IncludeAlternativeNames { get; set; } = false;
+             public bool IncludeChapters { get; set; } = false;
++            public bool IncludeChaptersTranslation { get; set; } = false;
+         }
+         private IQueryable<DTOs.Title> BuildQuery(TitleQueryOptions? options = null)
+         {
+@@ -40,6 +42,7 @@ namespace back_end.Database.DbAccess
+                 synopsis = t.synopsis,
+                 publicationDate = t.publicationDate,
+                 img = t.img,
++                CreatedAt = t.CreatedAt,
+ 
+                 Status = t.Status.id,
+                 ContentRating = t.ContentRating.id,
+@@ -74,7 +77,10 @@ namespace back_end.Database.DbAccess
+                 {
+                     id = c.id,
+                     number = c.number,
+-                    translations = c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
++                    UpdatedAt = c.UpdatedAt,
++
++                    translations = options.IncludeChaptersTranslation
++                    ? c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
+                     {
+                         id = ct.id,
+                         chapterTitle = ct.chapterTitle,
+@@ -83,12 +89,31 @@ namespace back_end.Database.DbAccess
+                         ScanGroupName = ct.ScanGroup.name,
+                         LanguageId = ct.LanguageId
+                     })
++                    : null
+                 })
+                 : null
+             });
+         }
+ 
+-        private async Task<List<DTOs.Title>> RunQuery(IQueryable<DTOs.Title> query)
++        private IQueryable<DTOs.ChapterLatestUpdates> BuildQueryLatest()
++        {
++            return _context.ChapterTranslations
++            .AsNoTracking()
++            .Select(ct => new DTOs.ChapterLatestUpdates
++            {
++                ChapterTranslationId = ct.id,
++                ChapterNumber = ct.Chapter.number,
++                uploadedAt = ct.uploadedAt,
++                viewCount = ct.viewCount,
++                LanguageId = ct.LanguageId,
++                ScanGroupName = ct.ScanGroup.name,
++                TitleId = ct.Chapter.Title.id,
++                TitleName = ct.Chapter.Title.name,
++                TitleImg = ct.Chapter.Title.img
++            });
++        }
++
++        private async Task<List<T>> RunQuery<T>(IQueryable<T> query)
+         {
+             return await query.ToListAsync();
+         }
+@@ -98,14 +123,15 @@ namespace back_end.Database.DbAccess
+             try
+             {
+                 IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
+-                   {
+-                       IncludeAuthors = true,
+-                       IncludeArtists = true,
+-                       IncludeGenres = true,
+-                       IncludeThemes = true,
+-                       IncludeAlternativeNames = true,
+-                       IncludeChapters = true
+-                   }
++                {
++                    IncludeAuthors = true,
++                    IncludeArtists = true,
++                    IncludeGenres = true,
++                    IncludeThemes = true,
++                    IncludeAlternativeNames = true,
++                    IncludeChapters = true,
++                    IncludeChaptersTranslation = true
++                }
+                 );
+                 query = query.Where(t => t.id == id);
+                 List<DTOs.Title> title = await RunQuery(query);
+@@ -117,47 +143,51 @@ namespace back_end.Database.DbAccess
+                 return Result<List<DTOs.Title>>.Failure(ex.Message);
+             }
+         }
+-        public async Task<Result<List<DTOs.Title>>> GetTitleLatestUpdates(int limit, bool compact)
++        public async Task<Result<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates(int limit)
+         {
+             try
+             {
++                if (limit <= 0)
++                    return Result<List<DTOs.ChapterLatestUpdates>>.Failure("The limit must be above than zero.");
++
+                 if (limit > 100)
+-                    return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
++                    return Result<List<DTOs.ChapterLatestUpdates>>.Failure("The limit cannot exceed 100.");
+ 
+-                IQueryable<DTOs.Title> query = compact ? BuildQuery()
+-                : BuildQuery(new TitleQueryOptions
+-                {
+-                    IncludeThemes = true,
+-                    IncludeGenres = true,
+-                    IncludeAuthors = true,
+-                    IncludeArtists = true
+-                });
+-                query = query.Take(limit);
++                IQueryable<DTOs.ChapterLatestUpdates> query = BuildQueryLatest()
++                   .OrderByDescending(ct => ct.uploadedAt)
++                   .Take(limit);
+ 
+-                List<DTOs.Title> title = await RunQuery(query);
+-                return Result<List<DTOs.Title>>.Success(title);
++                List<DTOs.ChapterLatestUpdates> result = await RunQuery(query);
++
++                return Result<List<DTOs.ChapterLatestUpdates>>.Success(result);
+             }
+             catch (Exception ex)
+             {
+-                return Result<List<DTOs.Title>>.Failure(ex.Message);
++                return Result<List<DTOs.ChapterLatestUpdates>>.Failure(ex.Message);
+             }
+         }
+         public async Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact)
+         {
+             try
+             {
++                if (limit <= 0)
++                    return Result<List<DTOs.Title>>.Failure("The limit must be above than zero.");
++
+                 if (limit > 100)
+                     return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
+ 
+                 IQueryable<DTOs.Title> query = compact ? BuildQuery()
+                 : BuildQuery(new TitleQueryOptions
+-                  {
+-                     IncludeThemes = true,
+-                     IncludeGenres = true,
+-                     IncludeAuthors = true,
+-                     IncludeArtists = true
+-                  });
+-                query = query.Take(limit);
++                {
++                    IncludeThemes = true,
++                    IncludeGenres = true,
++                    IncludeAuthors = true,
++                    IncludeArtists = true,
++                });
++
++                query = query
++                    .OrderByDescending(t => t.CreatedAt)
++                    .Take(limit);
+ 
+                 List<DTOs.Title> title = await RunQuery(query);
+                 return Result<List<DTOs.Title>>.Success(title);
+@@ -171,7 +201,7 @@ namespace back_end.Database.DbAccess
+         {
+             try
+             {
+-                if (limit > 100)   
++                if (limit > 100)
+                     return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
+ 
+                 IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
+diff --git a/back-end/back-end/Database/Seeds/Seeder.cs b/back-end/back-end/Database/Seeds/Seeder.cs
+index c79d0c8..1971a6e 100644
+--- a/back-end/back-end/Database/Seeds/Seeder.cs
++++ b/back-end/back-end/Database/Seeds/Seeder.cs
+@@ -65,6 +65,7 @@ namespace back_end.Database.Seeds
+             {
+                 int qntTranslactions = random.Next(1, 5);
+                 HashSet<(int scanGroupId, int languageId)> usedCombinations = new();
++                DateTime latestUploadForChapter = DateTime.MinValue;
+ 
+                 int attempts = 0;
+                 while (usedCombinations.Count < qntTranslactions && attempts < 50)
+@@ -74,7 +75,9 @@ namespace back_end.Database.Seeds
+                     int languageId = languages[random.Next(languages.Count)].id;
+ 
+                     if (!usedCombinations.Add((scanGroupId, languageId)))
+-                        continue; 
++                        continue;
++
++                    DateTime uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400));
+ 
+                     translations.Add(new Models.ChapterTranslation
+                     {
+@@ -83,10 +86,15 @@ namespace back_end.Database.Seeds
+                         ChapterId = chapter.id,
+                         ScanGroupId = scanGroupId,
+                         LanguageId = languageId,
+-                        uploadedAt = startDate.AddDays(random.Next(totalDays)).AddSeconds(random.Next(0, 86400)),
++                        uploadedAt = uploadedAt,
+                         viewCount = random.Next(0, 10000)
+                     });
++
++                    if (uploadedAt > latestUploadForChapter)
++                        latestUploadForChapter = uploadedAt;
+                 }
++
++                chapter.UpdatedAt = latestUploadForChapter;
+             }
+ 
+             _context.ChapterTranslations.AddRange(translations);
+@@ -109,8 +117,10 @@ namespace back_end.Database.Seeds
+                 "anyone his age and even older. Thus begins the chronicles of Rudeus Greyrat, son of swordsman Paul and healer Zenith, as he enters a new world to " +
+                 "become the strongest mage known to man, with powers rivaling even the gods themselves.",
+                 // this prop will generate random dates starting from this date
+-                publicationDate = new DateTime(2000, 1, 1, 0, 0, 0),
++                publicationDate = new DateOnly(1950, 1, 1),
+                 img = "image",
++                // this prop will generate random dates starting from this date
++                CreatedAt = new DateTime(2000, 1, 1, 0, 0, 0),
+             });
+             await _DbSeeds.Run<Models.Artist>("Artists", rows, new Models.Artist { name = "Artist" });
+             await _DbSeeds.Run<Models.Author>("Authors", rows, new Models.Author { name = "Author" });
+diff --git a/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+index 48cf25a..94770fc 100644
+--- a/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
++++ b/back-end/back-end/Migrations/AppDbContextModelSnapshot.cs
+@@ -160,6 +160,9 @@ namespace back_end.Migrations
+                     b.Property<int>("TitleId")
+                         .HasColumnType("integer");
+ 
++                    b.Property<DateTime>("UpdatedAt")
++                        .HasColumnType("timestamp with time zone");
++
+                     b.Property<decimal>("number")
+                         .HasColumnType("decimal(5,1)");
+ 
+@@ -352,6 +355,9 @@ namespace back_end.Migrations
+                     b.Property<int>("ContentRatingId")
+                         .HasColumnType("integer");
+ 
++                    b.Property<DateTime>("CreatedAt")
++                        .HasColumnType("timestamp with time zone");
++
+                     b.Property<int>("DemographicId")
+                         .HasColumnType("integer");
+ 
+@@ -368,8 +374,8 @@ namespace back_end.Migrations
+                         .HasMaxLength(255)
+                         .HasColumnType("character varying(255)");
+ 
+-                    b.Property<DateTime>("publicationDate")
+-                        .HasColumnType("timestamp with time zone");
++                    b.Property<DateOnly>("publicationDate")
++                        .HasColumnType("date");
+ 
+                     b.Property<string>("synopsis")
+                         .IsRequired()
+diff --git a/back-end/back-end/Models/Chapter.cs b/back-end/back-end/Models/Chapter.cs
+index 6ff9f6e..2592b02 100644
+--- a/back-end/back-end/Models/Chapter.cs
++++ b/back-end/back-end/Models/Chapter.cs
+@@ -5,6 +5,9 @@
+         public int id { get; set; }
+         public int TitleId { get; set; }
+         public decimal number { get; set; }
++
++        public DateTime UpdatedAt { get; set; }
++
+         public Models.Title Title { get; set; } = null!;
+         public ICollection<Models.ChapterTranslation> ChapterTranslation { get; set; } = new List<Models.ChapterTranslation>();
+     }
+diff --git a/back-end/back-end/Models/Title.cs b/back-end/back-end/Models/Title.cs
+index bdfa0f8..913c836 100644
+--- a/back-end/back-end/Models/Title.cs
++++ b/back-end/back-end/Models/Title.cs
+@@ -5,8 +5,10 @@
+         public int id { get; set; }
+         public string name { get; set; } = string.Empty;
+         public string synopsis { get; set; } = string.Empty;
+-        public DateTime publicationDate { get; set; } = DateTime.MinValue;
++        public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
+         public string img { get; set; } = string.Empty;
++        public DateTime CreatedAt { get; set; }          
++
+ 
+         public ICollection<Models.Author> Author { get; set; } = new List<Models.Author>();
+         public ICollection<Models.Artist> Artist { get; set; } = new List<Models.Artist>();

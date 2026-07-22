@@ -5,6 +5,7 @@ using back_end.Shared.Core;
 using back_end.Models;
 using System.Diagnostics;
 using System.Collections.Generic;
+using Microsoft.Extensions.Options;
 
 namespace back_end.Database.DbAccess
 {
@@ -25,6 +26,7 @@ namespace back_end.Database.DbAccess
             public bool IncludeThemes { get; set; } = false;
             public bool IncludeAlternativeNames { get; set; } = false;
             public bool IncludeChapters { get; set; } = false;
+            public bool IncludeChaptersTranslation { get; set; } = false;
         }
         private IQueryable<DTOs.Title> BuildQuery(TitleQueryOptions? options = null)
         {
@@ -40,6 +42,7 @@ namespace back_end.Database.DbAccess
                 synopsis = t.synopsis,
                 publicationDate = t.publicationDate,
                 img = t.img,
+                CreatedAt = t.CreatedAt,
 
                 Status = t.Status.id,
                 ContentRating = t.ContentRating.id,
@@ -74,7 +77,10 @@ namespace back_end.Database.DbAccess
                 {
                     id = c.id,
                     number = c.number,
-                    translations = c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
+                    UpdatedAt = c.UpdatedAt,
+
+                    translations = options.IncludeChaptersTranslation
+                    ? c.ChapterTranslation.Select(ct => new DTOs.Title.ChapterTranslationDTO
                     {
                         id = ct.id,
                         chapterTitle = ct.chapterTitle,
@@ -83,12 +89,31 @@ namespace back_end.Database.DbAccess
                         ScanGroupName = ct.ScanGroup.name,
                         LanguageId = ct.LanguageId
                     })
+                    : null
                 })
                 : null
             });
         }
 
-        private async Task<List<DTOs.Title>> RunQuery(IQueryable<DTOs.Title> query)
+        private IQueryable<DTOs.ChapterLatestUpdates> BuildQueryLatest()
+        {
+            return _context.ChapterTranslations
+            .AsNoTracking()
+            .Select(ct => new DTOs.ChapterLatestUpdates
+            {
+                ChapterTranslationId = ct.id,
+                ChapterNumber = ct.Chapter.number,
+                uploadedAt = ct.uploadedAt,
+                viewCount = ct.viewCount,
+                LanguageId = ct.LanguageId,
+                ScanGroupName = ct.ScanGroup.name,
+                TitleId = ct.Chapter.Title.id,
+                TitleName = ct.Chapter.Title.name,
+                TitleImg = ct.Chapter.Title.img
+            });
+        }
+
+        private async Task<List<T>> RunQuery<T>(IQueryable<T> query)
         {
             return await query.ToListAsync();
         }
@@ -98,14 +123,15 @@ namespace back_end.Database.DbAccess
             try
             {
                 IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
-                   {
-                       IncludeAuthors = true,
-                       IncludeArtists = true,
-                       IncludeGenres = true,
-                       IncludeThemes = true,
-                       IncludeAlternativeNames = true,
-                       IncludeChapters = true
-                   }
+                {
+                    IncludeAuthors = true,
+                    IncludeArtists = true,
+                    IncludeGenres = true,
+                    IncludeThemes = true,
+                    IncludeAlternativeNames = true,
+                    IncludeChapters = true,
+                    IncludeChaptersTranslation = true
+                }
                 );
                 query = query.Where(t => t.id == id);
                 List<DTOs.Title> title = await RunQuery(query);
@@ -117,10 +143,36 @@ namespace back_end.Database.DbAccess
                 return Result<List<DTOs.Title>>.Failure(ex.Message);
             }
         }
-        public async Task<Result<List<DTOs.Title>>> GetTitleLatestUpdates(int limit, bool compact)
+        public async Task<Result<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates(int limit)
         {
             try
             {
+                if (limit <= 0)
+                    return Result<List<DTOs.ChapterLatestUpdates>>.Failure("The limit must be above than zero.");
+
+                if (limit > 100)
+                    return Result<List<DTOs.ChapterLatestUpdates>>.Failure("The limit cannot exceed 100.");
+
+                IQueryable<DTOs.ChapterLatestUpdates> query = BuildQueryLatest()
+                   .OrderByDescending(ct => ct.uploadedAt)
+                   .Take(limit);
+
+                List<DTOs.ChapterLatestUpdates> result = await RunQuery(query);
+
+                return Result<List<DTOs.ChapterLatestUpdates>>.Success(result);
+            }
+            catch (Exception ex)
+            {
+                return Result<List<DTOs.ChapterLatestUpdates>>.Failure(ex.Message);
+            }
+        }
+        public async Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact)
+        {
+            try
+            {
+                if (limit <= 0)
+                    return Result<List<DTOs.Title>>.Failure("The limit must be above than zero.");
+
                 if (limit > 100)
                     return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
 
@@ -130,34 +182,12 @@ namespace back_end.Database.DbAccess
                     IncludeThemes = true,
                     IncludeGenres = true,
                     IncludeAuthors = true,
-                    IncludeArtists = true
+                    IncludeArtists = true,
                 });
-                query = query.Take(limit);
 
-                List<DTOs.Title> title = await RunQuery(query);
-                return Result<List<DTOs.Title>>.Success(title);
-            }
-            catch (Exception ex)
-            {
-                return Result<List<DTOs.Title>>.Failure(ex.Message);
-            }
-        }
-        public async Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact)
-        {
-            try
-            {
-                if (limit > 100)
-                    return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
-
-                IQueryable<DTOs.Title> query = compact ? BuildQuery()
-                : BuildQuery(new TitleQueryOptions
-                  {
-                     IncludeThemes = true,
-                     IncludeGenres = true,
-                     IncludeAuthors = true,
-                     IncludeArtists = true
-                  });
-                query = query.Take(limit);
+                query = query
+                    .OrderByDescending(t => t.CreatedAt)
+                    .Take(limit);
 
                 List<DTOs.Title> title = await RunQuery(query);
                 return Result<List<DTOs.Title>>.Success(title);
@@ -171,7 +201,7 @@ namespace back_end.Database.DbAccess
         {
             try
             {
-                if (limit > 100)   
+                if (limit > 100)
                     return Result<List<DTOs.Title>>.Failure("The limit cannot exceed 100.");
 
                 IQueryable<DTOs.Title> query = BuildQuery(new TitleQueryOptions
