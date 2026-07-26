@@ -65,7 +65,7 @@ namespace back_end.Database.DbAccess
                 : null,
 
                 alternativenames = options.IncludeAlternativeNames
-                ? t.AlternativeNames.Select(alt => new DTOs.Title.AlternativeNameDTO
+                ? t.AlternativeNames.Select(alt => new DTOs.AlternativeNameDTO
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
@@ -94,7 +94,6 @@ namespace back_end.Database.DbAccess
                 : null
             });
         }
-
         private IQueryable<DTOs.ChapterLatestUpdates> BuildQueryLatest()
         {
             return _context.ChapterTranslations
@@ -112,11 +111,27 @@ namespace back_end.Database.DbAccess
                 TitleImg = ct.Chapter.Title.img
             });
         }
-
+        private IQueryable<DTOs.FastTitle> BuildQueryFastTitle()
+        {
+            return _context.Titles
+            .AsNoTracking()
+            .Select(t => new DTOs.FastTitle
+            {
+                id = t.id,
+                name = t.name,
+                img = t.img,
+                alternativenames = t.AlternativeNames.Select(alt => new DTOs.AlternativeNameDTO
+                {
+                    name = alt.name,
+                    languageId = alt.LanguageId
+                })
+            });
+        }
         private async Task<List<T>> RunQuery<T>(IQueryable<T> query)
         {
             return await query.ToListAsync();
         }
+
 
         public async Task<Result<List<DTOs.Title>>> GetTitleById(int id)
         {
@@ -221,6 +236,35 @@ namespace back_end.Database.DbAccess
                 return Result<List<DTOs.Title>>.Failure(ex.Message);
             }
         }
+        public async Task<Result<List<DTOs.FastTitle>>> GetTitlesByFastFilters(string? name)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    return Result<List<DTOs.FastTitle>>.Failure("The name must not be empty or whitespace.");
+
+                IQueryable<DTOs.FastTitle> query = BuildQueryFastTitle();
+
+                query = query.Where(t =>
+                            EF.Functions.ILike(t.name, $"%{name}%") ||
+                            t.alternativenames.Any(alt => EF.Functions.ILike(alt.name, $"%{name}%")));
+
+                query = query
+                    .OrderBy(t => EF.Functions.ILike(t.name, $"{name}%") ? 0 : 1)
+                    .ThenBy(t => t.name)
+                    .ThenBy(t => t.id)
+                    .Take(5);
+
+                List<DTOs.FastTitle> titles = await RunQuery(query);
+
+                return Result<List<DTOs.FastTitle>>.Success(titles);
+            }
+            catch (Exception ex)
+            {
+                return Result<List<DTOs.FastTitle>>.Failure(ex.Message);
+            }
+
+        }
         public async Task<Result<List<DTOs.Title>>> GetTitlesByFilters(
             string? name,
             string? author,
@@ -258,9 +302,13 @@ namespace back_end.Database.DbAccess
                     return Result<List<DTOs.Title>>.Failure("Invalid filters: same id cannot be included and excluded simultaneously");
 
                 //# Include
-                //? Name
+                //? Name & Alternative Name
                 if (!string.IsNullOrWhiteSpace(name))
-                    query = query.Where(t => EF.Functions.ILike(t.name, $"%{name}%"));
+                {
+                    query = query.Where(t =>
+                        EF.Functions.ILike(t.name, $"%{name}%") ||
+                        t.alternativenames.Any(alt => EF.Functions.ILike(alt.name, $"%{name}%")));
+                }
 
                 //? Author
                 if (!string.IsNullOrWhiteSpace(author))

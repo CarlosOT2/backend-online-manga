@@ -4,6 +4,7 @@ using back_end.Database.DbAccess.Interfaces;
 using back_end.Shared.Core;
 using Microsoft.AspNetCore.Http.HttpResults;
 using System.Collections.Generic;
+using back_end.Models;
 
 namespace back_end.Controllers
 {
@@ -82,6 +83,21 @@ namespace back_end.Controllers
                 return StatusCode(500, "Server Failure");
 
             return Ok(result.Value);
+        }
+
+        [HttpGet("search/fast")]
+        public async Task<ActionResult<List<DTOs.FastTitle>>> FastSearchTitle([FromQuery] string name)
+        {
+            //? Verifications
+            if (string.IsNullOrWhiteSpace(name))
+                return BadRequest("You must provide a name");
+
+            Result<List<DTOs.FastTitle>> result = await _dbAccess.GetTitlesByFastFilters(name);
+
+            if (result.IsFailure)
+                return StatusCode(500, result.Message);
+
+            return result.Value;
         }
 
         [HttpGet("search")]

@@ -8,6 +8,8 @@ namespace back_end.Database.DbAccess.Interfaces
         Task<Result<List<DTOs.ChapterLatestUpdates>>> GetTitleLatestUpdates(int limit);
         Task<Result<List<DTOs.Title>>> GetTitleRecentlyAdded(int limit, bool compact);
         Task<Result<List<DTOs.Title>>> GetFeaturedTitles(int limit);
+
+        Task<Result<List<DTOs.FastTitle>>> GetTitlesByFastFilters(string? name);
         Task<Result<List<DTOs.Title>>> GetTitlesByFilters(
             string? name,
             string? author,

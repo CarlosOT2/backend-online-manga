@@ -2,11 +2,6 @@
 {
     public class Title
     {
-        public class AlternativeNameDTO
-        {
-            public string name { get; set; } = null!;
-            public int languageId { get; set; }
-        }
         public class ChaptersDTO
         {
             public int id { get; set; }
