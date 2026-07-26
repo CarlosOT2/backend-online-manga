@@ -125,7 +125,19 @@ namespace back_end.Database.DbAccess
                             {
                                 if (value is string strValue)
                                 {
-                                    prop.SetValue(item, $"{strValue}{i + 1}");
+                                    if (strValue.Contains('|'))
+                                    {
+                                        string[] options = strValue.Split('|', StringSplitOptions.RemoveEmptyEntries);
+                                        string chosen = options[Random.Shared.Next(options.Length)];
+
+                                        bool isLink = chosen.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                                                   || chosen.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+
+                                        prop.SetValue(item, isLink ? chosen : $"{chosen} {i + 1}");
+                                    } else
+                                    {
+                                        prop.SetValue(item, $"{strValue} {i + 1}");
+                                    }   
                                 }
                                 else if (value is DateTime dtValue)
                                 {
