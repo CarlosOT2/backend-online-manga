@@ -2,9 +2,6 @@
 using back_end.Data;
 using back_end.Database.DbAccess.Interfaces;
 using back_end.Shared.Core;
-using Microsoft.AspNetCore.Http.HttpResults;
-using System.Collections.Generic;
-using back_end.Models;
 
 namespace back_end.Controllers
 {
@@ -97,7 +94,7 @@ namespace back_end.Controllers
             if (result.IsFailure)
                 return StatusCode(500, result.Message);
 
-            return result.Value;
+            return result?.Value;
         }
 
         [HttpGet("search")]
@@ -136,7 +133,7 @@ namespace back_end.Controllers
             if (result.IsFailure)
                 return StatusCode(500, "Server Failure");
 
-            return result.Value;
+            return result?.Value;
         }
     }
 }

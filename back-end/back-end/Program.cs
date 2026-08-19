@@ -36,6 +36,7 @@ namespace back_end
             //? Dependency Injection
             builder.Services.AddScoped<Database.DbAccess.Interfaces.ITitle, Database.DbAccess.Title>();
             builder.Services.AddScoped<Database.DbAccess.Interfaces.IStatic, Database.DbAccess.Static>();
+            builder.Services.AddScoped<Database.DbAccess.Interfaces.IChapterTranslation, Database.DbAccess.ChapterTranslation>();
 
             builder.Services.Configure<CacheSettings>(builder.Configuration.GetSection("CacheSettings"));
             builder.Services.Configure<ValidationSettings>(builder.Configuration.GetSection("Database:Tables:Validation"));

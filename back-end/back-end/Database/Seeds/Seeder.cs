@@ -1,6 +1,8 @@
 ﻿using back_end.Data;
 using back_end.Database.DbAccess;
+using back_end.Models;
 using Microsoft.EntityFrameworkCore;
+using System;
 using System.Collections.Generic;
 using System.Text.Json;
 
@@ -104,6 +106,37 @@ namespace back_end.Database.Seeds
             _context.ChapterTranslations.AddRange(translations);
             await _context.SaveChangesAsync();
         }
+        private async Task SeedPages()
+        {
+            List<Models.ChapterTranslation> chapterTranslations = await _context.ChapterTranslations.ToListAsync();
+            List<Models.Page> pages = new List<Models.Page>();
+            List<string> imageUrls = await LoadSeedJson("ImagesUrl");
+
+            int id = 1;
+
+            foreach (Models.ChapterTranslation chapterTranslation in chapterTranslations)
+            {
+                int numPages = Random.Shared.Next(1, 101);
+
+                int currentPageNum = 1;
+                while(currentPageNum <= numPages)
+                {
+                    pages.Add(new Models.Page
+                    {
+                        id = id++,
+                        pageNumber = currentPageNum,
+                        imageUrl = imageUrls[(currentPageNum - 1) % imageUrls.Count],
+                        ChapterTranslationId = chapterTranslation.id
+                    });
+
+                    currentPageNum++;
+                }
+            }
+
+            _context.Pages.AddRange(pages);
+            await _context.SaveChangesAsync();
+        }
+
         private async Task<List<string>> LoadSeedJson(string keyName)
         {
             string path = Path.Combine(AppContext.BaseDirectory, "Database", "Seeds", "Seed.json");
@@ -144,6 +177,7 @@ namespace back_end.Database.Seeds
             await _DbSeeds.Run<Models.ScanGroup>("ScanGroups", rows, new Models.ScanGroup { name = "ScanGroup", websiteUrl = "teste" });
             await SeedChapters();
             await SeedChapterTranslations();
+            await SeedPages();
         }
     }
 }

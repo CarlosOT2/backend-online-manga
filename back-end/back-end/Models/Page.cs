@@ -1,6 +1,5 @@
 ﻿namespace back_end.Models
 {
-    /*
     public class Page
     {
         public int id { get; set; }
@@ -10,5 +9,4 @@
         public int ChapterTranslationId { get; set; }
         public Models.ChapterTranslation ChapterTranslation { get; set; } = null!;
     }
-    */
 }

@@ -29,7 +29,7 @@ namespace back_end.Data
         public DbSet<Chapter> Chapters { get; set; }
         public DbSet<ChapterTranslation> ChapterTranslations { get; set; }
         public DbSet<ScanGroup> ScanGroups { get; set; }
-        // public DbSet<Page> Pages { get; set; }
+        public DbSet<Page> Pages { get; set; }
 
         public DbSet<AlternativeName> AlternativeNames { get; set; }
         public DbSet<Language> Languages { get; set; }
@@ -49,15 +49,12 @@ namespace back_end.Data
                 e.Property(ct => ct.chapterTitle).HasMaxLength(_validation.ChapterTranslation.ChapterTitleMaxLength);
                 e.ToTable(ct => ct.HasCheckConstraint("CK_ChapterTranslation_ViewCount", "\"viewCount\" >= 0"));
             });
-
-            /*
             modelBuilder.Entity<Page>(e =>
             {
                 e.HasIndex(p => new { p.ChapterTranslationId, p.pageNumber }).IsUnique();
                 e.Property(p => p.imageUrl).HasMaxLength(_validation.Page.ImageUrlMaxLength);
-                e.ToTable(p => p.HasCheckConstraint("CK_PageNumber", "\"pageNumber\" >= 0"));
+                e.ToTable(p => p.HasCheckConstraint("CK_PageNumber", "\"pageNumber\" >= 1"));
             });
-            */
             modelBuilder.Entity<Title>(e =>
             {
                 e.Property(t => t.name).IsRequired().HasMaxLength(_validation.Title.NameMaxLength);
