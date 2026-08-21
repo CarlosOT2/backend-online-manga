@@ -95,7 +95,7 @@ namespace back_end
                 if (app.Environment.IsProduction())
                 {
                     Seeder seeder = new Seeder(db);
-                    await seeder.Run(500);
+                    await seeder.Run(150);
                 }
             }
 
