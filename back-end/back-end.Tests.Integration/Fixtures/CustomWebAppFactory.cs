@@ -10,6 +10,8 @@ using Testcontainers.PostgreSql;
 using Testcontainers.Redis;
 using back_end.Data;
 using Microsoft.AspNetCore.TestHost;
+using System.Text;
+using System.Text.Json;
 
 namespace back_end.Tests.Integration.Fixtures
 {
@@ -31,6 +33,7 @@ namespace back_end.Tests.Integration.Fixtures
         public string PostgresConnectionString => _postgresContainer.GetConnectionString();
         public string RedisConnectionString => _redisContainer.GetConnectionString();
 
+        // Config
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
@@ -58,13 +61,7 @@ namespace back_end.Tests.Integration.Fixtures
             });
         }
 
-        private async Task ApplyMigrationsAsync()
-        {
-            using IServiceScope scope = Services.CreateScope();
-            AppDbContext? db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            await db.Database.MigrateAsync();
-        }
-
+        // Initialize / Dispose
         public async Task InitializeAsync()
         {
             await Task.WhenAll(
@@ -85,6 +82,8 @@ namespace back_end.Tests.Integration.Fixtures
             });
 
             Client = CreateClient();
+            Client.Timeout = TimeSpan.FromSeconds(200);
+            await SeedAsync();
         }
 
         Task IAsyncLifetime.DisposeAsync()
@@ -105,6 +104,23 @@ namespace back_end.Tests.Integration.Fixtures
         public async Task ResetDatabaseAsync()
         {
             await _respawner.ResetAsync(_dbConnection);
+        }
+
+        // Database
+        private async Task ApplyMigrationsAsync()
+        {
+            using IServiceScope scope = Services.CreateScope();
+            AppDbContext? db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            await db.Database.MigrateAsync();
+        }
+        protected async Task SeedAsync()
+        {
+            HttpResponseMessage? responseStatic = await Client.PostAsync("/Seeds/Static", null);
+            responseStatic.EnsureSuccessStatusCode();
+
+            StringContent body = new StringContent(JsonSerializer.Serialize(50), Encoding.UTF8, "application/json");
+            HttpResponseMessage? responseSeed = await Client.PostAsync("/Seeds/Seed", body);
+            responseSeed.EnsureSuccessStatusCode();
         }
     }
 }

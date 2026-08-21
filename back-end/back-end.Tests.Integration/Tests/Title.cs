@@ -1,4 +1,5 @@
-﻿using System.Net;
+﻿
+using System.Net;
 using System.Text.Json;
 using back_end.Tests.Integration.Fixtures;
 namespace back_end.Tests.Integration.Tests
@@ -125,6 +126,13 @@ namespace back_end.Tests.Integration.Tests
                 PropertyNameCaseInsensitive = true
             });
             Assert.NotNull(titles);
+        }
+        
+        [Fact]
+        public async Task GetFastSearch()
+        {
+            HttpResponseMessage response = await Client.GetAsync("/Title/search/fast?name=naruto");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
     }
 }
