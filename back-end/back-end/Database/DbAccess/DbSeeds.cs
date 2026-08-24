@@ -240,6 +240,10 @@ namespace back_end.Database.DbAccess
                         {
                             prop.SetValue(item, Random.Shared.Next(1, 10001));
                         }
+                        else if (type == typeof(long))
+                        {
+                            prop.SetValue(item, Random.Shared.Next(1, 1000001));
+                        }
                         else
                         {
                             throw new InvalidOperationException($"Unable to handle with type {type}");

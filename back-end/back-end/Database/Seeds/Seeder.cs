@@ -1,9 +1,6 @@
 ﻿using back_end.Data;
 using back_end.Database.DbAccess;
-using back_end.Models;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
 using System.Text.Json;
 
 namespace back_end.Database.Seeds
@@ -166,10 +163,10 @@ namespace back_end.Database.Seeds
                 name = await LoadSeedJsonWithPipe("Names"),
                 synopsis = await LoadSeedJsonWithPipe("Synopsis"),
                 // this prop will generate random dates starting from this date
-                publicationDate = new DateOnly(1950, 1, 1),
+                publicationDate = new DateOnly(2005, 1, 1),
                 img = await LoadSeedJsonWithPipe("Images"),
                 // this prop will generate random dates starting from this date
-                CreatedAt = new DateTime(2000, 1, 1, 0, 0, 0),
+                CreatedAt = new DateTime(2000, 1, 1, 0, 0, 0)
             });
             await _DbSeeds.Run<Models.Artist>("Artists", rows, new Models.Artist { name = "Artist" });
             await _DbSeeds.Run<Models.Author>("Authors", rows, new Models.Author { name = "Author" });

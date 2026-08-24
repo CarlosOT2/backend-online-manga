@@ -7,8 +7,8 @@
         public string synopsis { get; set; } = string.Empty;
         public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
         public string img { get; set; } = string.Empty;
-        public DateTime CreatedAt { get; set; }          
-
+        public DateTime CreatedAt { get; set; }
+        public long viewCount { get; set; }
 
         public ICollection<Models.Author> Author { get; set; } = new List<Models.Author>();
         public ICollection<Models.Artist> Artist { get; set; } = new List<Models.Artist>();

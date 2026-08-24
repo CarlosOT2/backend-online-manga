@@ -43,6 +43,7 @@ namespace back_end.Database.DbAccess
                 publicationDate = t.publicationDate,
                 img = t.img,
                 CreatedAt = t.CreatedAt,
+                viewCount = t.viewCount,
 
                 Status = t.Status.id,
                 ContentRating = t.ContentRating.id,
@@ -226,7 +227,10 @@ namespace back_end.Database.DbAccess
                     IncludeAuthors = true,
                     IncludeArtists = true
                 });
-                query = query.Take(limit);
+                query = query
+                    .OrderByDescending(t => t.viewCount)
+                    // .Where(t => t.CreatedAt >= DateTime.UtcNow.AddMonths(-2))
+                    .Take(limit);
 
                 List<DTOs.Title> titles = await RunQuery(query);
                 return Result<List<DTOs.Title>>.Success(titles);

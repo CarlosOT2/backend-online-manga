@@ -25,7 +25,7 @@
         public string synopsis { get; set; } = string.Empty;
         public DateOnly publicationDate { get; set; } = DateOnly.MinValue;
         public string img { get; set; } = string.Empty;
-
+        public long viewCount { get; set; } = 0;
         public DateTime CreatedAt { get; set; } = DateTime.MinValue;
 
         public int Status { get; set; } = -1;
