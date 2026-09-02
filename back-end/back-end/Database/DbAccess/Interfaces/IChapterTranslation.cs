@@ -4,6 +4,6 @@ namespace back_end.Database.DbAccess.Interfaces
 {
     public interface IChapterTranslation
     {
-        Task<Result<List<DTOs.ChapterTranslation>>> GetChapterTranslation(int id);
+        Task<Result<DTOs.ChapterTranslation>> GetChapterTranslation(int id);
     }
 }

@@ -39,18 +39,18 @@ namespace back_end.Database.DbAccess
             return await query.ToListAsync();
         }
         
-        public async Task<Result<List<DTOs.ChapterTranslation>>> GetChapterTranslation(int id)
+        public async Task<Result<DTOs.ChapterTranslation>> GetChapterTranslation(int id)
         {
             try
             {
                 IQueryable<DTOs.ChapterTranslation> query = BuildQuery();
                 query = query.Where(ct => ct.id == id);
                 List<DTOs.ChapterTranslation> ct = await RunQuery(query);
-                return Result<List<DTOs.ChapterTranslation>>.Success(ct);
+                return Result<DTOs.ChapterTranslation>.Success(ct.FirstOrDefault());
             }
             catch (Exception ex)
             {
-                return Result<List<DTOs.ChapterTranslation>>.Failure(ex.Message);
+                return Result<DTOs.ChapterTranslation>.Failure(ex.Message);
             }
         }
     }

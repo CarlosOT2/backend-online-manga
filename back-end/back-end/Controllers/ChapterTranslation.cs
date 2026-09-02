@@ -20,13 +20,13 @@ namespace back_end.Controllers
         }
 
         [HttpGet]
-        public async Task<ActionResult<List<DTOs.ChapterTranslation>>> GetChapterTranslation([FromQuery] int? id)
+        public async Task<ActionResult<DTOs.ChapterTranslation>> GetChapterTranslation([FromQuery] int? id)
         {
             //? Verifications
             if (!id.HasValue)
                 return BadRequest("You must provide a id");
             //? Variables
-            Result<List<DTOs.ChapterTranslation>> result = await _dbAccess.GetChapterTranslation(id.Value);
+            Result<DTOs.ChapterTranslation> result = await _dbAccess.GetChapterTranslation(id.Value);
 
             if (result.IsFailure)
                 return StatusCode(500, "Server Failure");
