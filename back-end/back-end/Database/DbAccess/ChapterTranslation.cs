@@ -22,7 +22,11 @@ namespace back_end.Database.DbAccess
                 .Select(ct => new DTOs.ChapterTranslation
                 {
                     id = ct.id,
+                    TitleId = ct.Chapter.TitleId,
+                    TitleName = ct.Chapter.Title.name,
                     ChapterNumber = ct.Chapter.number,
+                    ChapterTitle = ct.chapterTitle,
+                    ScanName = ct.ScanGroup.name,
                     LanguageId = ct.LanguageId,
 
                     Pages = ct.Page.Select(p => new DTOs.ChapterTranslationPage

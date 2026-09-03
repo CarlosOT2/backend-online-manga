@@ -5,7 +5,12 @@ namespace back_end.DTOs
     public class ChapterTranslation
     {
         public int id { get; set; }
+        public int TitleId { get; set; }
+        public string TitleName { get; set; } = string.Empty;
         public decimal ChapterNumber { get; set; }
+        public string ChapterTitle { get; set; } = string.Empty;
+        public string ScanName { get; set; } = string.Empty;
+
         public int LanguageId { get; set; }
         public IEnumerable<ChapterTranslationPage> Pages { get; set; } = new List<ChapterTranslationPage>();
     }
