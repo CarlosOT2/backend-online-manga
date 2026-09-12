@@ -7,7 +7,7 @@
             public int id { get; set; }
             public decimal number { get; set; }
             public DateTime UpdatedAt { get; set; }
-            public IEnumerable<ChapterTranslationDTO>? translations { get; set; } = new List<ChapterTranslationDTO>();
+            public List<ChapterTranslationDTO>? translations { get; set; } = new List<ChapterTranslationDTO>();
         }
         public class ChapterTranslationDTO
         {
@@ -32,11 +32,11 @@
         public int ContentRating { get; set; } = -1;
         public int Demographic { get; set; } = -1;
 
-        public IEnumerable<int>? genres { get; set; } = new List<int>();
-        public IEnumerable<int>? themes { get; set; } = new List<int>();
-        public IEnumerable<string>? authors { get; set; } = new List<string>();
-        public IEnumerable<string>? artists { get; set; } = new List<string>();
-        public IEnumerable<AlternativeNameDTO>? alternativenames { get; set; } = new List<AlternativeNameDTO>();
-        public IEnumerable<ChaptersDTO>? chapters { get; set; } = new List<ChaptersDTO>();    
+        public List<int>? genres { get; set; } = new List<int>();
+        public List<int>? themes { get; set; } = new List<int>();
+        public List<string>? authors { get; set; } = new List<string>();
+        public List<string>? artists { get; set; } = new List<string>();
+        public List<AlternativeNameDTO>? alternativenames { get; set; } = new List<AlternativeNameDTO>();
+        public List<ChaptersDTO>? chapters { get; set; } = new List<ChaptersDTO>();    
     }
 }

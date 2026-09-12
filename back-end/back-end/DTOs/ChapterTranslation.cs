@@ -7,14 +7,24 @@ namespace back_end.DTOs
         public int id { get; set; }
         public int TitleId { get; set; }
         public string TitleName { get; set; } = string.Empty;
+
         public decimal ChapterNumber { get; set; }
         public string ChapterTitle { get; set; } = string.Empty;
+        public List<AvailableChapterTranslation> AvailableChaptersTranslations { get; set; } = [];
+
+        public int ScanId { get; set; }
         public string ScanName { get; set; } = string.Empty;
 
         public int LanguageId { get; set; }
-        public IEnumerable<ChapterTranslationPage> Pages { get; set; } = new List<ChapterTranslationPage>();
+        public List<ChapterTranslationPage> Pages { get; set; } = new List<ChapterTranslationPage>();
     }
 
+    public class AvailableChapterTranslation
+    {
+        public int TranslationId { get; set; }
+        public decimal ChapterNumber { get; set; }
+        public int ScanId { get; set; }
+    }
     public class ChapterTranslationPage
     {
         public int id { get; set; }

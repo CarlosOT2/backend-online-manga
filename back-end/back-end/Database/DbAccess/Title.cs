@@ -50,19 +50,19 @@ namespace back_end.Database.DbAccess
                 Demographic = t.Demographic.id,
 
                 authors = options.IncludeAuthors
-                ? t.Author.Select(a => a.name)
+                ? t.Author.Select(a => a.name).ToList()
                 : null,
 
                 artists = options.IncludeArtists
-                ? t.Artist.Select(a => a.name)
+                ? t.Artist.Select(a => a.name).ToList()
                 : null,
 
                 genres = options.IncludeGenres
-                ? t.Genre.Select(g => g.id)
+                ? t.Genre.Select(g => g.id).ToList()
                 : null,
 
                 themes = options.IncludeThemes
-                ? t.Theme.Select(th => th.id)
+                ? t.Theme.Select(th => th.id).ToList()
                 : null,
 
                 alternativenames = options.IncludeAlternativeNames
@@ -70,7 +70,7 @@ namespace back_end.Database.DbAccess
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
-                })
+                }).ToList()
                 : null,
 
                 chapters = options.IncludeChapters
@@ -89,9 +89,9 @@ namespace back_end.Database.DbAccess
                         viewCount = ct.viewCount,
                         ScanGroupName = ct.ScanGroup.name,
                         LanguageId = ct.LanguageId
-                    })
+                    }).ToList()
                     : null
-                })
+                }).ToList()
                 : null
             });
         }
@@ -125,7 +125,7 @@ namespace back_end.Database.DbAccess
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
-                })
+                }).ToList()
             });
         }
         private async Task<List<T>> RunQuery<T>(IQueryable<T> query)

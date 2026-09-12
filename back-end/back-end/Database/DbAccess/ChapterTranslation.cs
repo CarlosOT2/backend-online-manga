@@ -26,6 +26,17 @@ namespace back_end.Database.DbAccess
                     TitleName = ct.Chapter.Title.name,
                     ChapterNumber = ct.Chapter.number,
                     ChapterTitle = ct.chapterTitle,
+                    AvailableChaptersTranslations = _context.ChapterTranslations
+                    .Where(available =>
+                        available.Chapter.TitleId == ct.Chapter.TitleId &&
+                        available.LanguageId == ct.LanguageId)
+                    .Select(available => new DTOs.AvailableChapterTranslation
+                    {
+                        TranslationId = available.id,
+                        ChapterNumber = available.Chapter.number,
+                        ScanId = available.ScanGroupId
+                    }).ToList(),
+                    ScanId = ct.ScanGroup.id,
                     ScanName = ct.ScanGroup.name,
                     LanguageId = ct.LanguageId,
 
@@ -34,7 +45,7 @@ namespace back_end.Database.DbAccess
                               id = p.id,
                               PageNumber = p.pageNumber,
                               ImageUrl = p.imageUrl
-                         })
+                         }).ToList()
                 });
         }
 
@@ -50,6 +61,8 @@ namespace back_end.Database.DbAccess
                 IQueryable<DTOs.ChapterTranslation> query = BuildQuery();
                 query = query.Where(ct => ct.id == id);
                 List<DTOs.ChapterTranslation> ct = await RunQuery(query);
+
+
                 return Result<DTOs.ChapterTranslation>.Success(ct.FirstOrDefault());
             }
             catch (Exception ex)
