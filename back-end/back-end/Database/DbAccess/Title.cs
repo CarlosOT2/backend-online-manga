@@ -120,12 +120,20 @@ namespace back_end.Database.DbAccess
             {
                 id = t.id,
                 name = t.name,
-                img = t.img,
+
+                Status = t.Status.id,
+                ContentRating = t.ContentRating.id,
+                Demographic = t.Demographic.id,
+
                 alternativenames = t.AlternativeNames.Select(alt => new DTOs.AlternativeNameDTO
                 {
                     name = alt.name,
                     languageId = alt.LanguageId
-                }).ToList()
+                }).ToList(),
+
+                img = t.img
+
+
             });
         }
         private async Task<List<T>> RunQuery<T>(IQueryable<T> query)
