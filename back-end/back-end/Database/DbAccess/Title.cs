@@ -2,10 +2,6 @@
 using back_end.Database.DbAccess.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using back_end.Shared.Core;
-using back_end.Models;
-using System.Diagnostics;
-using System.Collections.Generic;
-using Microsoft.Extensions.Options;
 
 namespace back_end.Database.DbAccess
 {
@@ -102,11 +98,12 @@ namespace back_end.Database.DbAccess
             .Select(ct => new DTOs.ChapterLatestUpdates
             {
                 ChapterTranslationId = ct.id,
+                ChapterTitle = ct.chapterTitle,
                 ChapterNumber = ct.Chapter.number,
                 uploadedAt = ct.uploadedAt,
                 viewCount = ct.viewCount,
                 LanguageId = ct.LanguageId,
-                ScanGroupName = ct.ScanGroup.name,
+                ScanName = ct.ScanGroup.name,
                 TitleId = ct.Chapter.Title.id,
                 TitleName = ct.Chapter.Title.name,
                 TitleImg = ct.Chapter.Title.img
